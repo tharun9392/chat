@@ -16,7 +16,6 @@ dist/
 .env.production.local
 
 # Databases (NeDB)
-server/*.db
 server/data/*.db
 
 # IDEs and Misc

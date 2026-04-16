@@ -15,7 +15,7 @@ async function seedAdmin() {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
       
-      await User.update(existingUser._id, { 
+      await User.updateById(existingUser._id, { 
         isAdmin: true,
         password: hashedPassword // Update password just in case
       });

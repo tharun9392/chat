@@ -27,7 +27,7 @@ const authMiddleware = async (req, res, next) => {
       
       if (!user) {
         console.log('User not found with ID:', decoded.userId);
-        return res.status(404).json({ message: 'User not found' });
+        return res.status(401).json({ message: 'User session expired. Please log in again.' });
       }
       
       console.log('User found:', user.username);

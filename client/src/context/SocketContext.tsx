@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 import io, { Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
@@ -11,7 +11,7 @@ interface SocketContextType {
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
-const SOCKET_URL = 'http://127.0.0.1:5002';
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://127.0.0.1:5002';
 
 export const useSocket = () => {
   const context = useContext(SocketContext);
@@ -26,80 +26,96 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
 
   // Function to manually trigger re-authentication
   const reauthenticate = useCallback(() => {
-    if (socket && isConnected && token) {
-      console.log('Socket: Manually triggering authentication...');
-      socket.emit('authenticate', { token });
+    const s = socketRef.current;
+    const currentToken = token || localStorage.getItem('token');
+    if (s && s.connected && currentToken) {
+      console.log('Socket: Authenticating...');
+      s.emit('authenticate', { token: currentToken });
     }
-  }, [socket, isConnected, token]);
+  }, [token]);
 
-  // Initialize socket connection
+  // Initialize socket connection — only once
   useEffect(() => {
     console.log('Socket: Initializing connection to', SOCKET_URL);
     const newSocket = io(SOCKET_URL, {
-      reconnectionAttempts: 10,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
+      timeout: 20000,
+      transports: ['websocket', 'polling'],
     });
-    
+
+    socketRef.current = newSocket;
+
     newSocket.on('connect', () => {
       console.log('Socket: Connected to server');
       setIsConnected(true);
-      // Trigger authentication immediately on connect if we have a token
+      // Auto-authenticate on connect/reconnect
       const storedToken = localStorage.getItem('token');
       if (storedToken) {
         newSocket.emit('authenticate', { token: storedToken });
       }
     });
-    
+
     newSocket.on('disconnect', (reason) => {
-      console.log('Socket: Disconnected from server (Reason:', reason, ')');
+      console.log('Socket: Disconnected (Reason:', reason, ')');
       setIsConnected(false);
       setIsAuthenticated(false);
+      // Auto-reconnect if the server disconnected us (not user-initiated)
+      if (reason === 'io server disconnect') {
+        newSocket.connect();
+      }
     });
-    
-    newSocket.on('authenticated', (data) => {
-      console.log('Socket: Successfully authenticated for user:', data.userId);
+
+    newSocket.on('reconnect', (attemptNumber: number) => {
+      console.log('Socket: Reconnected after', attemptNumber, 'attempts');
+    });
+
+    newSocket.on('reconnect_error', (error: Error) => {
+      console.warn('Socket: Reconnection error:', error.message);
+    });
+
+    newSocket.on('authenticated', (data: any) => {
+      console.log('Socket: Authenticated for user:', data.userId);
       setIsAuthenticated(true);
     });
-    
-    newSocket.on('authentication_error', (error) => {
+
+    newSocket.on('authentication_error', (error: any) => {
       console.error('Socket: Authentication failed:', error.message);
       setIsAuthenticated(false);
     });
-    
+
     setSocket(newSocket);
-    
+
     return () => {
       console.log('Socket: Cleaning up connection');
+      newSocket.removeAllListeners();
       newSocket.disconnect();
+      socketRef.current = null;
     };
   }, []);
 
-  // Sync authentication state when AuthContext state changes
+  // Sync authentication when user auth state changes
   useEffect(() => {
-    if (socket && isConnected && userIsAuthenticated && token && !isAuthenticated) {
-      reauthenticate();
-    } else if (socket && isAuthenticated && !userIsAuthenticated) {
-      console.log('Socket: User logged out, clearing state');
-      setIsAuthenticated(false);
-      socket.disconnect();
-      setTimeout(() => socket.connect(), 500);
-    }
-  }, [socket, isConnected, token, userIsAuthenticated, isAuthenticated, reauthenticate]);
+    const s = socketRef.current;
+    if (!s) return;
 
-  // Periodic check to ensure we stay authenticated if connected
-  useEffect(() => {
-    const authCheckInterval = setInterval(() => {
-      if (socket && isConnected && userIsAuthenticated && !isAuthenticated) {
-        console.log('Socket: Watchdog detected connected but unauthenticated state, retrying...');
-        reauthenticate();
-      }
-    }, 5000); // Check every 5 seconds
-    
-    return () => clearInterval(authCheckInterval);
-  }, [socket, isConnected, userIsAuthenticated, isAuthenticated, reauthenticate]);
+    if (s.connected && userIsAuthenticated && token && !isAuthenticated) {
+      // User just logged in, authenticate socket
+      s.emit('authenticate', { token });
+    } else if (isAuthenticated && !userIsAuthenticated) {
+      // User logged out, reset socket auth state
+      console.log('Socket: User logged out, resetting auth state');
+      setIsAuthenticated(false);
+      s.disconnect();
+      setTimeout(() => s.connect(), 300);
+    }
+  }, [token, userIsAuthenticated, isAuthenticated]);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected, isAuthenticated, reauthenticate }}>
@@ -108,4 +124,4 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 };
 
-export default SocketContext; 
+export default SocketContext;

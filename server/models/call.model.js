@@ -1,87 +1,35 @@
-const Datastore = require('nedb');
-const path = require('path');
-const fs = require('fs');
+const mongoose = require('mongoose');
 
-// Ensure data directory exists
-const dataDir = path.join(__dirname, '../data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-// Create a new NeDB datastore for calls
-const db = new Datastore({
-  filename: path.join(dataDir, 'calls.db'),
-  autoload: true
+const callSchema = new mongoose.Schema({
+  callerId: { type: String, required: true },
+  receiverId: { type: String, required: true },
+  chatId: { type: String },
+  status: { type: String, enum: ['initiated', 'joined', 'missed', 'rejected', 'completed', 'busy'], default: 'initiated' },
+  duration: { type: Number, default: 0 },
+  type: { type: String, enum: ['video', 'audio'], default: 'video' },
+  startedAt: { type: Date },
+  endedAt: { type: Date }
+}, { 
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// Create indexes for performance
-db.ensureIndex({ fieldName: 'callerId' });
-db.ensureIndex({ fieldName: 'receiverId' });
-db.ensureIndex({ fieldName: 'chatId' });
-
-const Call = {
-  db,
-  
-  create(callData) {
-    const call = {
-      ...callData,
-      status: callData.status || 'initiated', // initiated, joined, missed, rejected, completed
-      duration: callData.duration || 0,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    
-    return new Promise((resolve, reject) => {
-      db.insert(call, (err, newDoc) => {
-        if (err) return reject(err);
-        resolve(newDoc);
-      });
-    });
-  },
-  
-  findById(id) {
-    return new Promise((resolve, reject) => {
-      db.findOne({ _id: id }, (err, doc) => {
-        if (err) return reject(err);
-        resolve(doc);
-      });
-    });
-  },
-  
-  // Find all calls where user is either caller or receiver
-  findByUser(userId) {
-    return new Promise((resolve, reject) => {
-      db.find({ 
-        $or: [{ callerId: userId }, { receiverId: userId }] 
-      })
-      .sort({ createdAt: -1 })
-      .exec((err, docs) => {
-        if (err) return reject(err);
-        resolve(docs);
-      });
-    });
-  },
-  
-  update(id, update) {
-    update.updatedAt = new Date();
-    
-    return new Promise((resolve, reject) => {
-      db.update({ _id: id }, { $set: update }, {}, (err, numReplaced) => {
-        if (err) return reject(err);
-        if (numReplaced === 0) return reject(new Error('Call not found'));
-        Call.findById(id).then(resolve).catch(reject);
-      });
-    });
-  },
-
-  delete(id) {
-    return new Promise((resolve, reject) => {
-      db.remove({ _id: id }, {}, (err, numRemoved) => {
-        if (err) return reject(err);
-        resolve(numRemoved > 0);
-      });
-    });
-  }
+// Static methods to maintain compatibility with NeDB-wrapper API
+callSchema.statics.findByUser = function(userId) {
+  return this.find({ 
+    $or: [{ callerId: userId }, { receiverId: userId }] 
+  }).sort({ createdAt: -1 });
 };
+
+callSchema.statics.updateById = function(id, updateData) {
+  return this.findByIdAndUpdate(id, { $set: updateData }, { new: true });
+};
+
+callSchema.statics.delete = function(id) {
+  return this.findByIdAndDelete(id).then(doc => !!doc);
+};
+
+const Call = mongoose.model('Call', callSchema);
 
 module.exports = Call;

@@ -11,13 +11,9 @@ router.use(authMiddleware, adminMiddleware);
 // Get system statistics
 router.get('/stats', async (req, res) => {
   try {
-    const userCount = await new Promise((resolve, reject) => {
-      User.db.count({}, (err, count) => err ? reject(err) : resolve(count));
-    });
+    const userCount = await User.countDocuments({});
     
-    const chatCount = await new Promise((resolve, reject) => {
-      Chat.db.count({}, (err, count) => err ? reject(err) : resolve(count));
-    });
+    const chatCount = await Chat.countDocuments({});
     
     // Total messages across all chats
     const allChats = await Chat.findAll();
@@ -52,9 +48,7 @@ router.delete('/users/:userId', async (req, res) => {
     }
     
     // Delete user
-    await new Promise((resolve, reject) => {
-      User.db.remove({ _id: userId }, {}, (err) => err ? reject(err) : resolve());
-    });
+    await User.findByIdAndDelete(userId);
     
     // Also delete chats where this user was a participant? 
     // Or just mark them as 'deleted user'? 

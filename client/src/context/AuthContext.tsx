@@ -44,7 +44,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Base API URL
-const API_URL = 'http://127.0.0.1:5002/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
 
 // Custom hook for using the auth context
 export const useAuth = () => {

@@ -22,6 +22,7 @@ interface Message {
   isVoiceMessage?: boolean;
   isCallLog?: boolean;
   plainContent?: string; // Store plaintext for sent encrypted messages
+  timestamp?: string; // Legacy field
 }
 
 interface User {
@@ -42,7 +43,7 @@ interface ChatData {
   status?: 'pending' | 'active' | 'blocked';
 }
 
-const API_URL = 'http://localhost:5002/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
 
 const Chat: React.FC = () => {
   const { chatId } = useParams<{ chatId: string }>();
@@ -188,10 +189,10 @@ const Chat: React.FC = () => {
           if (socket && isConnected) {
             socket.emit('mark_delivered', { chatId, receiverId: user?.id || user?._id });
           }
-          
-          axios.put(`${API_URL}/chats/${chatId}/delivered`, {}, {
+          // Use the /read endpoint (delivered is handled via socket only)
+          axios.put(`${API_URL}/chats/${chatId}/read`, {}, {
             headers: { Authorization: `Bearer ${token}` }
-          }).catch(e => console.error('Failed to mark delivered', e));
+          }).catch(e => console.error('Failed to mark read', e));
         }
 
         // If we received a message from the other person while the chat is open, immediately mark it as read
@@ -712,7 +713,8 @@ const Chat: React.FC = () => {
     const groups: { [key: string]: Message[] } = {};
 
     messages.forEach(msg => {
-      const date = formatMessageDate(msg.createdAt);
+      // Guard: createdAt may be undefined for messages from older DB entries
+      const date = formatMessageDate(msg.createdAt || msg.timestamp || new Date().toISOString());
       if (!groups[date]) {
         groups[date] = [];
       }
@@ -1009,9 +1011,9 @@ const Chat: React.FC = () => {
                             }`}
                         >
                           <div className="break-words text-sm pr-12">
-                            {msg.isVoiceMessage || msg.content.startsWith('data:audio/') ? (
-                              <audio controls src={msg.content} className="max-w-[200px] h-10 mt-1" />
-                            ) : msg.content.startsWith('data:image/') ? (
+                            {msg.isVoiceMessage || (msg.content ?? '').startsWith('data:audio/') ? (
+                              <audio controls src={msg.content || ''} className="max-w-[200px] h-10 mt-1" />
+                            ) : (msg.content ?? '').startsWith('data:image/') ? (
                               <div className="mt-1 relative group">
                                 <img 
                                   src={msg.content} 
@@ -1020,6 +1022,8 @@ const Chat: React.FC = () => {
                                   onClick={() => window.open(msg.content, '_blank')}
                                 />
                               </div>
+                            ) : !msg.content ? (
+                              <span className="italic text-slate-400 dark:text-slate-500 text-xs">[empty message]</span>
                             ) : (
                               <div className="relative">
                                 {msg.encrypted && (
@@ -1036,7 +1040,7 @@ const Chat: React.FC = () => {
                             )}
                           </div>
                           <div className="absolute right-1.5 bottom-1 flex items-center space-x-1 opacity-60">
-                            <span className="text-[9px]">{formatMessageTime(msg.createdAt)}</span>
+                            <span className="text-[9px]">{formatMessageTime(msg.createdAt || msg.timestamp || new Date().toISOString())}</span>
                             {isOwnMessage && (
                               <span className="flex">
                                 {msg.readAt ? (

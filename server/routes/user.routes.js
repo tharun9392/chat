@@ -14,29 +14,22 @@ router.get('/search', authMiddleware, async (req, res) => {
     }
     
     // Find users matching the query excluding the current user and blocked users
-    // NeDB doesn't support complex queries like Mongoose, so we'll do a simple query and filter in memory
-    const users = await new Promise((resolve, reject) => {
-      User.db.find({ username: new RegExp(query, 'i') }, (err, docs) => {
-        if (err) return reject(err);
-        
-        // Filter out current user and blocked users
-        const filteredUsers = docs.filter(user => 
-          user._id !== req.user._id && 
-          !req.user.blockedUsers.includes(user._id)
-        );
-        
-        // Select only required fields
-        const result = filteredUsers.map(user => ({
-          _id: user._id,
-          username: user.username,
-          displayName: user.displayName,
-          profilePic: user.profilePic,
-          lastSeen: user.lastSeen
-        }));
-        
-        resolve(result);
-      });
-    });
+    const docs = await User.find({ username: new RegExp(query, 'i') });
+    
+    // Filter out current user and blocked users
+    const filteredUsers = docs.filter(user => 
+      String(user._id) !== String(req.user._id) && 
+      !(req.user.blockedUsers || []).includes(String(user._id))
+    );
+    
+    // Select only required fields
+    const users = filteredUsers.map(user => ({
+      _id: user._id,
+      username: user.username,
+      displayName: user.displayName,
+      profilePic: user.profilePic,
+      lastSeen: user.lastSeen
+    }));
     
     res.json({ users });
   } catch (error) {
@@ -63,7 +56,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
       updateData.username = username;
     }
     
-    const updatedUser = await User.update(req.user._id, updateData);
+    const updatedUser = await User.updateById(req.user._id, updateData);
     
     res.json({
       message: 'Profile updated successfully',
@@ -90,7 +83,7 @@ router.put('/keys', authMiddleware, async (req, res) => {
     }
     
     // Update user keys
-    await User.update(req.user._id, { 
+    await User.updateById(req.user._id, { 
       publicKey, 
       privateKey,
       publicKeyVersion: (req.user.publicKeyVersion || 0) + 1
@@ -112,7 +105,7 @@ router.put('/settings', authMiddleware, async (req, res) => {
       const settings = req.user.settings || {};
       settings.darkMode = darkMode;
       
-      const updatedUser = await User.update(req.user._id, { settings });
+      const updatedUser = await User.updateById(req.user._id, { settings });
       
       res.json({
         message: 'Settings updated successfully',
@@ -146,7 +139,7 @@ router.post('/block/:userId', authMiddleware, async (req, res) => {
     
     // Add to blocked users
     blockedUsers.push(userId);
-    await User.update(req.user._id, { blockedUsers });
+    await User.updateById(req.user._id, { blockedUsers });
     
     res.json({ message: 'User blocked successfully' });
   } catch (error) {
@@ -168,7 +161,7 @@ router.post('/unblock/:userId', authMiddleware, async (req, res) => {
     
     // Remove from blocked users
     blockedUsers.splice(blockIndex, 1);
-    await User.update(req.user._id, { blockedUsers });
+    await User.updateById(req.user._id, { blockedUsers });
     
     res.json({ message: 'User unblocked successfully' });
   } catch (error) {
@@ -205,19 +198,8 @@ router.get('/blocked', authMiddleware, async (req, res) => {
 // Admin-only: Get all users
 router.get('/all', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const users = await new Promise((resolve, reject) => {
-      User.db.find({}, (err, docs) => {
-        if (err) return reject(err);
-        
-        // Remove password field
-        const result = docs.map(user => {
-          const { password, ...userWithoutPassword } = user;
-          return userWithoutPassword;
-        });
-        
-        resolve(result);
-      });
-    });
+    const docs = await User.find({}).select('-password');
+    const users = docs.map(user => user.toObject());
     
     res.json({ users });
   } catch (error) {

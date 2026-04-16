@@ -34,7 +34,7 @@ router.put('/:id', auth, async (req, res) => {
     const { status, duration } = req.body;
     const callId = req.params.id;
     
-    const updatedCall = await Call.update(callId, { 
+    const updatedCall = await Call.updateById(callId, { 
       status, 
       ...(duration !== undefined && { duration }) 
     });

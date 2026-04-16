@@ -1,6 +1,5 @@
 const express = require('express');
-// Replace mongoose with nedb
-// const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const http = require('http');
@@ -59,10 +58,99 @@ app.use(express.static('public'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Connect to MongoDB - Removed and replaced with NeDB
-// mongoose.connect(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/chat_app')
-//   .then(() => console.log('Connected to MongoDB'))
-//   .catch((err) => console.error('MongoDB connection error:', err));
+// Connect to MongoDB (with fallback to in-memory server for development)
+let usingInMemoryDb = false;
+
+async function connectToDatabase() {
+  const atlasUri = process.env.MONGODB_URI;
+  
+  // Try Atlas first
+  if (atlasUri) {
+    try {
+      console.log('Attempting to connect to MongoDB Atlas...');
+      await mongoose.connect(atlasUri, { serverSelectionTimeoutMS: 10000 });
+      console.log('✅ Connected to MongoDB Atlas');
+      return;
+    } catch (err) {
+      console.warn('⚠️  MongoDB Atlas connection failed:', err.message);
+      console.log('Falling back to in-memory MongoDB for local development...');
+    }
+  }
+
+  // Fallback: use mongodb-memory-server
+  try {
+    const { MongoMemoryServer } = require('mongodb-memory-server');
+    const mongoServer = await MongoMemoryServer.create();
+    const memoryUri = mongoServer.getUri();
+    await mongoose.connect(memoryUri);
+    usingInMemoryDb = true;
+    console.log('✅ Connected to in-memory MongoDB (data will not persist across restarts)');
+  } catch (memErr) {
+    console.error('❌ Failed to start in-memory MongoDB:', memErr.message);
+    process.exit(1);
+  }
+}
+
+// Seed default user for in-memory DB so login works immediately after restarts
+async function seedDefaultUser() {
+  if (!usingInMemoryDb) return;
+  
+  const User = require('./models/user.model');
+  const sodium = require('libsodium-wrappers');
+  
+  try {
+    await sodium.ready;
+    
+    // Seed user 1: tharun
+    const existingUser1 = await User.findOne({ username: 'tharun' });
+    if (!existingUser1) {
+      const keys1 = sodium.crypto_box_keypair('hex');
+      await User.create({
+        username: 'tharun',
+        password: 'Tharun@123',
+        displayName: 'tharun',
+        publicKey: keys1.publicKey,
+        publicKeyVersion: 1,
+        privateKey: keys1.privateKey
+      });
+      console.log('✅ Seeded user: tharun (password: Tharun@123)');
+    }
+
+    // Seed user 2: testuser (for testing chat requests)
+    const existingUser2 = await User.findOne({ username: 'testuser' });
+    if (!existingUser2) {
+      const keys2 = sodium.crypto_box_keypair('hex');
+      await User.create({
+        username: 'testuser',
+        password: 'Test@1234',
+        displayName: 'Test User',
+        publicKey: keys2.publicKey,
+        publicKeyVersion: 1,
+        privateKey: keys2.privateKey
+      });
+      console.log('✅ Seeded user: testuser (password: Test@1234)');
+    }
+
+    // Seed user 3: jayanth
+    const existingUser3 = await User.findOne({ username: 'jayanth' });
+    if (!existingUser3) {
+      const keys3 = sodium.crypto_box_keypair('hex');
+      await User.create({
+        username: 'jayanth',
+        password: 'Jayanth@123',
+        displayName: 'jayanth',
+        publicKey: keys3.publicKey,
+        publicKeyVersion: 1,
+        privateKey: keys3.privateKey
+      });
+      console.log('✅ Seeded user: jayanth (password: Jayanth@123)');
+    }
+  } catch (err) {
+    console.error('⚠️  Failed to seed default users:', err.message);
+  }
+}
+
+connectToDatabase().then(() => seedDefaultUser());
 
 // Routes
 app.use('/api/auth', authRoutes);

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
 import { useSocket } from '../context/SocketContext';
+import { useNavigate } from 'react-router-dom';
 
 interface User {
   _id: string;
@@ -16,17 +17,19 @@ interface UserSearchProps {
   compact?: boolean;
 }
 
-const API_URL = 'http://localhost:5002/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
 
 const UserSearch: React.FC<UserSearchProps> = ({ onSelectUser, compact = false }) => {
   const { token } = useAuth();
   const { addNotification } = useNotification();
   const { socket, isConnected, isAuthenticated } = useSocket();
+  const navigate = useNavigate();
   
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingRequests, setPendingRequests] = useState<string[]>([]);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
   
   // Close dropdown on click outside
@@ -92,42 +95,59 @@ const UserSearch: React.FC<UserSearchProps> = ({ onSelectUser, compact = false }
     }
   };
   
-  // Send chat request
+  // Send chat request or navigate to existing chat
   const sendChatRequest = async (userId: string, username: string) => {
-    if (!token || !socket || !isConnected || !isAuthenticated) {
-      addNotification('Cannot send chat request at this time', 'error');
+    if (!token) {
+      addNotification('Please log in to start a chat', 'error');
       return;
     }
     
     try {
-      // Send request to server
       const response = await axios.post(
         `${API_URL}/chats/request`,
         { recipientId: userId },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      const { chat } = response.data;
+      const { chat, existing, pending } = response.data;
       
-      // Update pending requests
+      if (existing && !pending && chat) {
+        // Chat already exists and is active — navigate to it
+        addNotification(`Opening chat with ${username}`, 'info');
+        navigate(`/chat/${chat._id}`);
+        setQuery('');
+        setResults([]);
+        return;
+      }
+      
+      if (existing && pending) {
+        // Request is already pending
+        addNotification(`Chat request to ${username} is already pending`, 'info');
+        setQuery('');
+        setResults([]);
+        return;
+      }
+      
+      // New request sent successfully
       setPendingRequests(prev => [...prev, userId]);
       
       // Send socket notification
-      socket.emit('chat_request', {
-        receiverId: userId,
-        senderId: chat.requestInfo.senderId,
-        senderName: 'You', // This would be the current user's name
-        requestId: chat._id
-      });
+      if (socket && isConnected && isAuthenticated && chat) {
+        socket.emit('chat_request', {
+          receiverId: userId,
+          senderId: chat.requestInfo?.senderId,
+          senderName: 'You',
+          requestId: chat._id
+        });
+      }
       
-      // Show notification
       addNotification(`Chat request sent to ${username}`, 'success');
       setQuery('');
       setResults([]);
     } catch (error: any) {
       console.error('Error sending chat request:', error);
       const message = error.response?.data?.message || 'Failed to send chat request';
-      addNotification(message, error.response?.status === 400 ? 'info' : 'error');
+      addNotification(message, 'error');
     }
   };
   

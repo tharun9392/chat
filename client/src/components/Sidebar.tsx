@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { usePendingRequests } from '../hooks/usePendingRequests';
@@ -9,16 +9,17 @@ import axios from 'axios';
 import { useNotification } from '../context/NotificationContext';
 import { useCall } from '../context/CallContext';
 
-const API_URL = 'http://localhost:5002/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
 
 const Sidebar: React.FC = () => {
   const { user, logout, token } = useAuth();
   const { toggleTheme, isDark } = useTheme();
-  const { chats, isLoading, fetchChats } = useChats();
+  const { chats, isLoading, fetchChats, appendChat } = useChats();
   const { addNotification } = useNotification();
   const { initiateCall, callActive } = useCall();
   const pendingRequests = usePendingRequests(user?._id || user?.id);
   const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'chats' | 'calls'>('chats');
   const [calls, setCalls] = useState<any[]>([]);
   const [isCallsLoading, setIsCallsLoading] = useState(false);
@@ -30,25 +31,37 @@ const Sidebar: React.FC = () => {
   const respondToChatRequest = async (requestId: string, status: 'accepted' | 'rejected') => {
     if (!token) return;
     try {
-      await axios.put(`${API_URL}/chats/request/${requestId}`, 
+      const response = await axios.put(
+        `${API_URL}/chats/request/${requestId}`,
         { status },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      // Show more specific notification based on status
+
       if (status === 'accepted') {
-        addNotification('✓ Chat request accepted! You can now message this user.', 'success');
+        const newChat = response.data.chat;
+
+        if (newChat) {
+          // Instantly append to sidebar — no waiting for re-fetch
+          appendChat(newChat);
+          // Navigate to the chat immediately
+          navigate(`/chat/${newChat._id}`);
+          addNotification('✓ Chat accepted! You can now message this user.', 'success');
+        } else {
+          // Fallback: re-fetch if no chat returned
+          await fetchChats();
+          addNotification('✓ Chat request accepted!', 'success');
+        }
       } else {
-        addNotification('Chat request rejected', 'info');
+        addNotification('Chat request declined', 'info');
       }
-      
-      fetchChats(); // Refresh chat list if accepted
-      setIsNotificationsOpen(false); // Close notification panel
+
+      setIsNotificationsOpen(false);
     } catch (error) {
       console.error('Error responding to chat request:', error);
       addNotification('Failed to process chat request', 'error');
     }
   };
+
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -143,7 +156,7 @@ const Sidebar: React.FC = () => {
   return (
     <aside className="flex flex-col w-80 md:w-96 h-full bg-white/60 dark:bg-dark-900/60 backdrop-blur-md border-r border-slate-200/50 dark:border-white/5 transition-colors duration-300">
       {/* Sidebar Header */}
-      <div className="p-4 bg-white/40 dark:bg-dark-800/40 backdrop-blur-sm flex items-center justify-between border-b border-slate-200/50 dark:border-white/5 shadow-sm">
+      <div className="relative z-[100] p-4 bg-white/40 dark:bg-dark-800/40 backdrop-blur-sm flex items-center justify-between border-b border-slate-200/50 dark:border-white/5 shadow-sm">
         <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-2">
           <img src="/logo123.png" alt="Logo" className="w-8 h-8 object-contain" />
@@ -167,33 +180,66 @@ const Sidebar: React.FC = () => {
             </button>
 
             {isNotificationsOpen && (
-              <div className="absolute top-12 right-0 w-64 bg-white dark:bg-gray-800 shadow-xl rounded-lg border dark:border-gray-700 z-50 p-4">
-                <p className="font-semibold mb-3 dark:text-white text-sm">Chat Requests</p>
-                {pendingRequests.length === 0 ? (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 italic">No pending requests</p>
-                ) : (
-                  <ul className="space-y-3">
-                    {pendingRequests.map((req: any) => (
-                      <li key={req._id} className="text-xs flex flex-col space-y-2 pb-2 border-b dark:border-gray-700 last:border-0">
-                        <span className="dark:text-gray-300 font-medium truncate">Request from {req.sender?.username || 'User'}</span>
-                        <div className="flex space-x-2">
-                          <button 
-                            onClick={() => respondToChatRequest(req._id, 'accepted')}
-                            className="flex-1 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                          >
-                            Accept
-                          </button>
-                          <button 
-                            onClick={() => respondToChatRequest(req._id, 'rejected')}
-                            className="flex-1 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              <div className="absolute top-full mt-2 right-0 w-72 bg-white dark:bg-dark-800 rounded-xl border border-slate-200 dark:border-white/10 z-[200] overflow-hidden"
+                   style={{ boxShadow: '0 10px 40px rgba(0,0,0,0.15), 0 2px 10px rgba(0,0,0,0.08)' }}>
+                {/* Arrow indicator */}
+                <div className="absolute -top-2 right-4 w-4 h-4 bg-white dark:bg-dark-800 border-l border-t border-slate-200 dark:border-white/10 transform rotate-45"></div>
+                
+                {/* Header */}
+                <div className="px-4 py-3 bg-slate-50 dark:bg-dark-700/50 border-b border-slate-100 dark:border-white/5">
+                  <div className="flex items-center justify-between">
+                    <p className="font-bold text-slate-800 dark:text-white text-sm">Chat Requests</p>
+                    {pendingRequests.length > 0 && (
+                      <span className="text-[10px] font-bold bg-primary-500 text-white px-2 py-0.5 rounded-full">
+                        {pendingRequests.length}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Content */}
+                <div className="p-3 max-h-64 overflow-y-auto custom-scrollbar">
+                  {pendingRequests.length === 0 ? (
+                    <div className="py-4 text-center">
+                      <svg className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                      </svg>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">No pending requests</p>
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {pendingRequests.map((req: any) => (
+                        <li key={req._id} className="p-2.5 rounded-lg bg-slate-50 dark:bg-dark-700/30 border border-slate-100 dark:border-white/5">
+                          <div className="flex items-center mb-2">
+                            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white text-xs font-bold mr-2 flex-shrink-0">
+                              {(req.sender?.username || 'U').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="overflow-hidden">
+                              <p className="text-xs font-semibold text-slate-800 dark:text-white truncate">
+                                {req.sender?.displayName || req.sender?.username || 'User'}
+                              </p>
+                              <p className="text-[10px] text-slate-400">wants to chat with you</p>
+                            </div>
+                          </div>
+                          <div className="flex space-x-2">
+                            <button 
+                              onClick={() => respondToChatRequest(req._id, 'accepted')}
+                              className="flex-1 py-1.5 text-xs font-semibold bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors shadow-sm"
+                            >
+                              Accept
+                            </button>
+                            <button 
+                              onClick={() => respondToChatRequest(req._id, 'rejected')}
+                              className="flex-1 py-1.5 text-xs font-semibold bg-slate-100 dark:bg-dark-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-dark-500 transition-colors"
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             )}
           </div>

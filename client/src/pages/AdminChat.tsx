@@ -19,7 +19,7 @@ interface ChatData {
   status: string;
 }
 
-const API_URL = 'http://127.0.0.1:5002/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
 
 const AdminChat: React.FC = () => {
   const { chatId } = useParams<{ chatId: string }>();

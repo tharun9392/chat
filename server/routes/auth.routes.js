@@ -141,7 +141,7 @@ router.post('/login', async (req, res) => {
     
     // Update last seen
     try {
-      await User.update(user._id, { lastSeen: new Date() });
+      await User.updateById(user._id, { lastSeen: new Date() });
     } catch (updateError) {
       console.error('Error updating last seen:', updateError);
       // Continue anyway - this is non-critical
@@ -218,9 +218,31 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     }
     
     // Update password
-    await User.update(req.user._id, { password: newPassword });
+    await User.updateById(req.user._id, { password: newPassword });
     
     res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Get current user (session restoration)
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+    res.json({
+      user: {
+        id: user._id,
+        _id: user._id,
+        username: user.username,
+        displayName: user.displayName,
+        profilePic: user.profilePic,
+        isAdmin: user.isAdmin,
+        publicKey: user.publicKey,
+        privateKey: user.privateKey,
+        settings: user.settings
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
