@@ -22,18 +22,37 @@ const app = express();
 // Create HTTP server using Express app
 const server = http.createServer(app);
 
+// CORS configuration helper
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:3002'
+];
+
+const checkOrigin = (origin, callback) => {
+  // Allow requests with no origin (like mobile apps, curl, or server-to-server)
+  if (!origin) return callback(null, true);
+  
+  // Check if it is a local address, Vercel subdomain, or matches CLIENT_URL
+  const isLocal = allowedOrigins.includes(origin);
+  const isVercel = origin.endsWith('.vercel.app');
+  const isClientUrl = process.env.CLIENT_URL && 
+    process.env.CLIENT_URL.split(',').map(url => url.trim()).includes(origin);
+  
+  if (isLocal || isVercel || isClientUrl) {
+    callback(null, true);
+  } else {
+    callback(new Error('Not allowed by CORS'));
+  }
+};
+
 // Initialize Socket.IO with the server and CORS configuration
 const io = new Server(server, {
   cors: {
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:3002',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:3001',
-      'http://127.0.0.1:3002',
-      process.env.CLIENT_URL
-    ],
+    origin: checkOrigin,
     methods: ['GET', 'POST'],
     credentials: true
   },
@@ -44,15 +63,7 @@ app.set('io', io);
 
 // Middleware
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001',
-    'http://127.0.0.1:3002',
-    process.env.CLIENT_URL
-  ],
+  origin: checkOrigin,
   credentials: true
 }));
 app.use(express.static('public'));
