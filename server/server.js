@@ -399,9 +399,10 @@ app.get('/', (req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 5002;
-// Use 127.0.0.1 instead of default to avoid Windows IPv6 localhost issues
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Server is running on http://127.0.0.1:${PORT}`);
+const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
+
+server.listen(PORT, HOST, () => {
+  console.log(`Server is running on http://${HOST}:${PORT}`);
   
   // Removed background message cleaner - feature decommissioned
 });
