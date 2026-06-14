@@ -32,6 +32,16 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// Get all users
+router.get('/users', async (req, res) => {
+  try {
+    const users = await User.find({}, '-password').sort({ createdAt: -1 });
+    res.json({ users });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // Delete a user
 router.delete('/users/:userId', async (req, res) => {
   try {
@@ -55,6 +65,31 @@ router.delete('/users/:userId', async (req, res) => {
     // For now, let's keep it simple.
     
     res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Broadcast a system-wide announcement
+router.post('/broadcast', async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || message.trim() === '') {
+      return res.status(400).json({ message: 'Announcement message is required' });
+    }
+
+    const io = req.app.get('io');
+    if (!io) {
+      return res.status(500).json({ message: 'Socket server not available' });
+    }
+
+    io.emit('admin_announcement', {
+      message: message.trim(),
+      senderName: req.user.displayName || req.user.username,
+      timestamp: new Date()
+    });
+
+    res.json({ message: 'Announcement broadcast successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }

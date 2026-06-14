@@ -33,17 +33,12 @@ export const useChats = () => {
   const { socket, isConnected, isAuthenticated } = useSocket();
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const isFetchingRef = useRef(false);
 
   const fetchChats = useCallback(async (cancelToken?: any) => {
     if (!token) {
       setChats([]);
       return;
     }
-
-    // Prevent concurrent fetches
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
 
     try {
       setIsLoading(true);
@@ -53,6 +48,7 @@ export const useChats = () => {
       });
 
       const serverChats = response.data.chats || [];
+      console.log('Fetched chats:', serverChats);
       // Replace state with server data (source of truth)
       setChats(serverChats);
     } catch (error: any) {
@@ -65,7 +61,6 @@ export const useChats = () => {
       console.error('Error fetching chats:', error);
     } finally {
       setIsLoading(false);
-      isFetchingRef.current = false;
     }
   }, [token]);
 

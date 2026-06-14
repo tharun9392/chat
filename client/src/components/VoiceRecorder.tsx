@@ -14,7 +14,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onRecordingComplete }) =>
     const recorder = new RecordRTC(stream, {
       type: 'audio',
       mimeType: 'audio/webm',
-      recorderType: RecordRTC.StereoAudioRecorder,
+      recorderType: RecordRTC.MediaStreamRecorder,
     });
     recorder.startRecording();
     recorderRef.current = recorder;

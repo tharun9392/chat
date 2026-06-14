@@ -23,6 +23,12 @@ const Sidebar: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'chats' | 'calls'>('chats');
   const [calls, setCalls] = useState<any[]>([]);
   const [isCallsLoading, setIsCallsLoading] = useState(false);
+  
+  // Debug output
+  useEffect(() => {
+    console.log('Sidebar rendered, chats:', chats);
+  }, [chats]);
+
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -39,9 +45,11 @@ const Sidebar: React.FC = () => {
 
       if (status === 'accepted') {
         const newChat = response.data.chat;
+        console.log('Accepted chat payload from API:', newChat);
 
         if (newChat) {
           // Instantly append to sidebar — no waiting for re-fetch
+          console.log('Executing appendChat with newChat');
           appendChat(newChat);
           // Navigate to the chat immediately
           navigate(`/chat/${newChat._id}`);

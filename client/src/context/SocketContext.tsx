@@ -95,8 +95,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       console.log('Socket: Cleaning up connection');
       newSocket.removeAllListeners();
-      newSocket.disconnect();
-      socketRef.current = null;
+      // Delay disconnection slightly to prevent browser throwing 'WebSocket closed before connection'
+      // during React Strict Mode's instant mount->unmount cycle.
+      setTimeout(() => {
+        newSocket.disconnect();
+      }, 500);
+      if (socketRef.current === newSocket) {
+        socketRef.current = null;
+      }
     };
   }, []);
 

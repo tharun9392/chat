@@ -561,24 +561,13 @@ const Chat: React.FC = () => {
 
         // console.log('Sending voice message:', newMessage);
 
-        // Save message to database
-        await axios.post(
-          `${API_URL}/chats/${chatId}/messages`,
-          { 
-            ...newMessage
-          },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-
-        // console.log('Voice message saved:', response.data);
-
-        // Send message via socket
+        // Send message via socket immediately
         socket.emit('send_message', {
           ...newMessage,
           room: chatId
         });
 
-        // Update local state
+        // Update local state instantly (Optimistic UI)
         setChat(prevChat => {
           if (!prevChat) return null;
 
@@ -587,6 +576,15 @@ const Chat: React.FC = () => {
             messages: [...prevChat.messages, { ...newMessage, content: base64data }],
             lastActivity: new Date().toISOString()
           };
+        });
+
+        // Run the async save in the background
+        axios.post(
+          `${API_URL}/chats/${chatId}/messages`,
+          { ...newMessage },
+          { headers: { Authorization: `Bearer ${token}` } }
+        ).catch(err => {
+          console.error('Failed to save voice message to DB:', err);
         });
       };
     } catch (error) {
@@ -670,22 +668,13 @@ const Chat: React.FC = () => {
         plainContent: encrypted ? originalContent : undefined
       };
 
-      // Save message to database
-      await axios.post(
-        `${API_URL}/chats/${chatId}/messages`,
-        { 
-          ...newMessage
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      // Send message via socket
+      // Send message via socket immediately
       socket.emit('send_message', {
         ...newMessage,
         room: chatId
       });
 
-      // Update local state
+      // Update local state instantly (Optimistic UI)
       setChat(prevChat => {
         if (!prevChat) return null;
         return {
@@ -693,6 +682,20 @@ const Chat: React.FC = () => {
           messages: [...prevChat.messages, { ...newMessage, content: originalContent }],
           lastActivity: new Date().toISOString()
         };
+      });
+
+      setMessage('');
+      setPendingFile(null);
+      setFilePreview(null);
+      setIsSending(false); // Reset loading state instantly so user can keep typing
+
+      // Run the async save in the background (fire and forget)
+      axios.post(
+        `${API_URL}/chats/${chatId}/messages`,
+        { ...newMessage },
+        { headers: { Authorization: `Bearer ${token}` } }
+      ).catch(err => {
+         console.error('Failed to save message to DB:', err);
       });
 
       setMessage('');
@@ -977,12 +980,20 @@ const Chat: React.FC = () => {
                     </div>
                   </div>
 
-                  {messages.map((msg) => {
+                  {messages.map((msg, index) => {
                     const isOwnMessage = msg.sender === user?.id || msg.sender === user?._id;
+                    const uniqueKey = msg._id ? `${msg._id}-${index}` : `msg-${index}`;
+
+                    // Guard clause: do not render messages that are completely empty (e.g. from decryption failures or empty sends)
+                    const contentStr = msg.content || '';
+                    const hasMedia = msg.isVoiceMessage || contentStr.startsWith('data:audio/') || contentStr.startsWith('data:image/');
+                    if (!msg.isCallLog && !hasMedia && !contentStr.trim()) {
+                      return null;
+                    }
 
                     if (msg.isCallLog) {
                       return (
-                        <div key={msg._id} className="flex justify-center my-4 group/log relative">
+                        <div key={uniqueKey} className="flex justify-center my-4 group/log relative">
                           <div className="px-4 py-1.5 glass-card bg-black/10 dark:bg-white/5 rounded-full text-[12px] font-medium text-slate-600 dark:text-slate-300 flex items-center space-x-2 border border-white/10 relative">
                             <span>{msg.content}</span>
                             <span className="opacity-60 text-[10px]">{formatMessageTime(msg.createdAt)}</span>
@@ -1003,7 +1014,7 @@ const Chat: React.FC = () => {
 
                     return (
                       <div
-                        key={msg._id}
+                        key={uniqueKey}
                         className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} mb-1`}
                       >
                         <div
@@ -1022,8 +1033,6 @@ const Chat: React.FC = () => {
                                   onClick={() => window.open(msg.content, '_blank')}
                                 />
                               </div>
-                            ) : !msg.content ? (
-                              <span className="italic text-slate-400 dark:text-slate-500 text-xs">[empty message]</span>
                             ) : (
                               <div className="relative">
                                 {msg.encrypted && (

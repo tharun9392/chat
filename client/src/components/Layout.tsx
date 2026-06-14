@@ -1,11 +1,30 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from './Sidebar';
+import { useSocket } from '../context/SocketContext';
+import { useNotification } from '../context/NotificationContext';
 
 const Layout: React.FC = () => {
   const { user, isLoading } = useAuth();
   const location = useLocation();
+  const { socket } = useSocket();
+  const { addNotification } = useNotification();
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleAnnouncement = (data: any) => {
+      console.log('Received admin announcement:', data);
+      addNotification(`📢 Announcement: ${data.message}`, 'warning', 10000);
+    };
+
+    socket.on('admin_announcement', handleAnnouncement);
+
+    return () => {
+      socket.off('admin_announcement', handleAnnouncement);
+    };
+  }, [socket, addNotification]);
 
   const isAuthPage = location.pathname === '/login' || location.pathname === '/register' || (!user && !isLoading);
 

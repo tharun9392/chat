@@ -22,6 +22,7 @@ router.get('/', async (req, res) => {
       participants: userId,
       status: 'active'
     }).sort({ lastActivity: -1 });
+    console.log(`GET /chats for user ${userId}: found ${chats.length} active chats`);
 
     // Enrich chats with participant info
     const enrichedChats = await Promise.all(chats.map(async (chat) => {
@@ -345,6 +346,59 @@ router.get('/:chatId', async (req, res) => {
   }
 });
 
+// ─── SEND A MESSAGE USING RECEIVER ID (For CallLogs) ─────────────────────────
+router.post('/message', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const { receiverId, content, isCallLog, isVoiceMessage, encrypted } = req.body;
+
+    if (!receiverId) {
+      return res.status(400).json({ message: 'Receiver ID is required' });
+    }
+
+    // Find the active chat between these two users
+    const chat = await Chat.findOne({
+      participants: { $all: [userId, receiverId] },
+      status: 'active'
+    });
+
+    if (!chat) {
+      return res.status(404).json({ message: 'Active chat not found between these users' });
+    }
+
+    const message = {
+      _id: uuidv4(),
+      sender: userId,
+      content: content || '',
+      type: 'text',
+      timestamp: new Date(),
+      status: 'sent',
+      senderName: req.user.displayName || req.user.username,
+      encrypted: encrypted || false,
+      isCallLog: isCallLog || false,
+      isVoiceMessage: isVoiceMessage || false,
+      createdAt: new Date().toISOString()
+    };
+
+    await Chat.addMessage(chat._id, message);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('receive_message', {
+        chatId: chat._id,
+        message,
+        senderId: userId,
+        recipientId: receiverId
+      });
+    }
+
+    res.status(201).json({ message, chatId: chat._id });
+  } catch (error) {
+    console.error('Error sending message via receiverId:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // ─── SEND A MESSAGE ────────────────────────────────────────────────────────
 router.post('/:chatId/messages', async (req, res) => {
   try {
@@ -492,6 +546,49 @@ router.post('/:chatId/typing', async (req, res) => {
       recipientIds.forEach(recipientId => {
         io.emit('typing_status', { chatId, userId, isTyping, recipientId });
       });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// ─── MARK MESSAGES AS DELIVERED ──────────────────────────────────────────────
+router.put('/:chatId/delivered', async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = getUserId(req);
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return res.status(404).json({ message: 'Chat not found' });
+    }
+
+    let updated = false;
+    const updatedMessages = chat.messages.map(msg => {
+      // For message schema compatibility
+      const msgObj = typeof msg.toObject === 'function' ? msg.toObject() : msg;
+      
+      // If msg not sent by the current user and not yet marked delivered
+      if (msgObj.sender !== userId && !msgObj.deliveredAt) {
+        updated = true;
+        return { ...msgObj, deliveredAt: new Date().toISOString() };
+      }
+      return msgObj; // keep as object or original based on what's returned
+    });
+
+    if (updated) {
+      // The schema might reject deliveredAt if it's not defined, but since we use Mixed objects or if it's defined, it's fine.
+      await Chat.findByIdAndUpdate(chatId, { $set: { messages: updatedMessages } });
+
+      const io = req.app.get('io');
+      if (io) {
+        const senderIds = [...new Set(chat.messages.filter(m => m.sender !== userId).map(m => m.sender))];
+        senderIds.forEach(senderId => {
+          io.emit('messages_delivered', { chatId, deliveredTo: userId, recipientId: senderId });
+        });
+      }
     }
 
     res.json({ success: true });

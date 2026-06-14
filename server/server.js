@@ -36,7 +36,8 @@ const io = new Server(server, {
     ],
     methods: ['GET', 'POST'],
     credentials: true
-  }
+  },
+  maxHttpBufferSize: 1e8 // 100MB to allow sending large images/voice messages
 });
 
 app.set('io', io);
@@ -77,16 +78,31 @@ async function connectToDatabase() {
     }
   }
 
-  // Fallback: use mongodb-memory-server
+  // Fallback: use mongodb-memory-server with local storage persistence
   try {
+    const path = require('path');
+    const fs = require('fs');
     const { MongoMemoryServer } = require('mongodb-memory-server');
-    const mongoServer = await MongoMemoryServer.create();
+    
+    const dbPath = path.join(__dirname, 'data', 'db');
+    // Ensure the db folder exists
+    if (!fs.existsSync(dbPath)) {
+      fs.mkdirSync(dbPath, { recursive: true });
+    }
+    
+    const mongoServer = await MongoMemoryServer.create({
+      instance: {
+        dbPath: dbPath,
+        storageEngine: 'wiredTiger'
+      }
+    });
+    
     const memoryUri = mongoServer.getUri();
     await mongoose.connect(memoryUri);
     usingInMemoryDb = true;
-    console.log('✅ Connected to in-memory MongoDB (data will not persist across restarts)');
+    console.log('✅ Connected to local persistent MongoDB (data WILL persist across restarts inside server/data/db)');
   } catch (memErr) {
-    console.error('❌ Failed to start in-memory MongoDB:', memErr.message);
+    console.error('❌ Failed to start persistent MongoDB fallback:', memErr.message);
     process.exit(1);
   }
 }
@@ -144,6 +160,22 @@ async function seedDefaultUser() {
         privateKey: keys3.privateKey
       });
       console.log('✅ Seeded user: jayanth (password: Jayanth@123)');
+    }
+
+    // Seed Admin user: btharun356@gmail.com
+    const existingAdmin = await User.findOne({ username: 'btharun356@gmail.com' });
+    if (!existingAdmin) {
+      const adminKeys = sodium.crypto_box_keypair('hex');
+      await User.create({
+        username: 'btharun356@gmail.com',
+        password: 'Tharun@123',
+        displayName: 'Admin (B Tharun)',
+        isAdmin: true,
+        publicKey: adminKeys.publicKey,
+        publicKeyVersion: 1,
+        privateKey: adminKeys.privateKey
+      });
+      console.log('✅ Seeded Admin user: btharun356@gmail.com (password: Tharun@123)');
     }
   } catch (err) {
     console.error('⚠️  Failed to seed default users:', err.message);
@@ -302,6 +334,27 @@ io.on('connection', (socket) => {
 
   socket.on('end_call', (data) => {
     emitToUser(data.to, 'call_ended');
+  });
+
+  socket.on('call_ringing', (data) => {
+    console.log(`[Calling] Call ringing notification from ${socket.userId} to ${data.to}`);
+    emitToUser(data.to, 'call_ringing', { from: socket.userId });
+  });
+
+  socket.on('call_state_change', (data) => {
+    console.log(`[Calling] State change from ${socket.userId} to ${data.to}:`, data.state);
+    emitToUser(data.to, 'call_state_change', {
+      from: socket.userId,
+      state: data.state
+    });
+  });
+
+  socket.on('call_reaction', (data) => {
+    console.log(`[Calling] Reaction from ${socket.userId} to ${data.to}: ${data.reaction}`);
+    emitToUser(data.to, 'call_reaction', {
+      from: socket.userId,
+      reaction: data.reaction
+    });
   });
   
   // Handle chat requests

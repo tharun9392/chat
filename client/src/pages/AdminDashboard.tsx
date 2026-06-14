@@ -39,6 +39,29 @@ const AdminDashboard: React.FC = () => {
   const { user, token } = useAuth();
   const navigate = useNavigate();
   const { addNotification } = useNotification();
+  const [broadcastMessage, setBroadcastMessage] = useState<string>('');
+  const [broadcasting, setBroadcasting] = useState<boolean>(false);
+
+  const handleBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastMessage.trim()) return;
+
+    setBroadcasting(true);
+    try {
+      await axios.post(
+        `${API_URL}/admin/broadcast`,
+        { message: broadcastMessage },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      addNotification('Announcement broadcasted successfully!', 'success');
+      setBroadcastMessage('');
+    } catch (error) {
+      console.error('Error broadcasting message:', error);
+      addNotification('Failed to broadcast announcement', 'error');
+    } finally {
+      setBroadcasting(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -77,6 +100,32 @@ const AdminDashboard: React.FC = () => {
       fetchData(); // Refresh list
     } catch (error) {
       addNotification('Failed to delete user', 'error');
+    }
+  };
+
+  const handleStartChat = async (userId: string, username: string) => {
+    try {
+      const response = await axios.post(
+        `${API_URL}/chats/request`,
+        { recipientId: userId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      const { chat, existing, pending } = response.data;
+      
+      if (existing && !pending && chat) {
+        addNotification(`Opened chat with ${username}`, 'info');
+        navigate(`/chat/${chat._id}`);
+      } else if (existing && pending) {
+        addNotification(`Chat request to ${username} is already pending.`, 'info');
+        if (response.data.chatId) navigate(`/chat/${response.data.chatId}`);
+      } else {
+        addNotification(`Chat request sent to ${username}`, 'success');
+        if (chat) navigate(`/chat/${chat._id}`);
+      }
+    } catch (error: any) {
+      console.error('Error starting chat:', error);
+      addNotification(error.response?.data?.message || 'Failed to start chat', 'error');
     }
   };
 
@@ -150,6 +199,53 @@ const AdminDashboard: React.FC = () => {
 
         {/* Content Tabs/Sections */}
         <div className="space-y-12">
+          {/* Broadcast Announcement Section */}
+          <div className="glass-panel overflow-hidden border-none shadow-2xl p-6">
+            <h2 className="text-xl font-bold flex items-center mb-4 text-slate-800 dark:text-white">
+              <svg className="w-5 h-5 mr-3 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+              </svg>
+              Broadcast System Announcement
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 font-medium">
+              Send a real-time notification to all connected users. This announcement will appear immediately on their screens.
+            </p>
+            <form onSubmit={handleBroadcast} className="space-y-4">
+              <textarea
+                value={broadcastMessage}
+                onChange={(e) => setBroadcastMessage(e.target.value)}
+                placeholder="Type your system announcement here..."
+                rows={3}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white/50 dark:bg-dark-800/50 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50 resize-none font-medium text-sm transition-all"
+                required
+              />
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={broadcasting || !broadcastMessage.trim()}
+                  className="btn-primary flex items-center justify-center font-bold px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-indigo-500 hover:from-primary-700 hover:to-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-primary-500/20"
+                >
+                  {broadcasting ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Broadcasting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                      </svg>
+                      Send Broadcast
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+
           {/* Users Section */}
           <div className="glass-panel overflow-hidden border-none shadow-2xl">
             <div className="p-6 border-b border-slate-100 dark:border-white/5 flex items-center justify-between bg-white/40 dark:bg-white/5">
@@ -195,11 +291,21 @@ const AdminDashboard: React.FC = () => {
                       <td className="px-6 py-4 text-sm font-medium text-slate-500">
                         {new Date(u.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-6 py-4 text-right whitespace-nowrap">
+                        <button 
+                          onClick={() => handleStartChat(u._id, u.username)}
+                          disabled={u._id === user?._id}
+                          className="mr-2 p-2 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-all disabled:opacity-20 inline-block"
+                          title="Message User"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                        </button>
                         <button 
                           onClick={() => handleDeleteUser(u._id)}
                           disabled={u._id === user?._id}
-                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all disabled:opacity-20"
+                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all disabled:opacity-20 inline-block"
                           title="Delete User"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
