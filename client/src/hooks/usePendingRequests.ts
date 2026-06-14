@@ -14,7 +14,7 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
 
 export function usePendingRequests(userId: string | undefined) {
   const [pendingRequests, setPendingRequests] = useState<ChatRequest[]>([]);
-  const { socket, isConnected, isAuthenticated } = useSocket();
+  const { socket, isConnected } = useSocket();
   const { token } = useAuth();
 
   const fetchRequestsData = useCallback(() => {
