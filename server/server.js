@@ -80,13 +80,23 @@ async function connectToDatabase() {
   if (atlasUri) {
     try {
       console.log('Attempting to connect to MongoDB Atlas...');
-      await mongoose.connect(atlasUri, { serverSelectionTimeoutMS: 10000 });
+      await mongoose.connect(atlasUri, { serverSelectionTimeoutMS: 5000 });
       console.log('✅ Connected to MongoDB Atlas');
       return;
     } catch (err) {
       console.warn('⚠️  MongoDB Atlas connection failed:', err.message);
-      console.log('Falling back to in-memory MongoDB for local development...');
     }
+  }
+
+  // Try local MongoDB next
+  try {
+    console.log('Attempting to connect to local MongoDB (mongodb://127.0.0.1:27017/chat_app)...');
+    await mongoose.connect('mongodb://127.0.0.1:27017/chat_app', { serverSelectionTimeoutMS: 5000 });
+    console.log('✅ Connected to local persistent MongoDB instance');
+    return;
+  } catch (localErr) {
+    console.warn('⚠️  Local MongoDB connection failed:', localErr.message);
+    console.log('Falling back to in-memory MongoDB for local development...');
   }
 
   // Fallback: use mongodb-memory-server with local storage persistence

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNotification } from '../context/NotificationContext';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
@@ -8,6 +9,7 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
 const Profile: React.FC = () => {
   const { user } = useAuth();
   const { addNotification } = useNotification();
+  const navigate = useNavigate();
   
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -71,8 +73,19 @@ const Profile: React.FC = () => {
   };
   
   return (
-    <div className="max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Your Profile</h1>
+    <div className="max-w-4xl mx-auto p-4 md:p-6 animate-fade-in">
+      <div className="flex items-center mb-6">
+        <button 
+          onClick={() => navigate('/')} 
+          className="mr-3 p-1.5 rounded-full text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 block md:hidden hover:bg-slate-100 dark:hover:bg-dark-850 focus:outline-none transition-colors duration-200"
+          aria-label="Back to chats"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+        </button>
+        <h1 className="text-2xl font-bold dark:text-white">Your Profile</h1>
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Profile Information */}

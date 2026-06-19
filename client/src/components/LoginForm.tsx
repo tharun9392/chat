@@ -151,10 +151,10 @@ const LoginForm: React.FC = () => {
         
         {needsRecoveryCode && (
           <div className="mb-8">
-            <label htmlFor="recovery-code" className="block text-sm font-semibold text-gray-300 mb-2">
+            <label htmlFor="recovery-code" className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
               Recovery Code <span className="text-red-400">*</span>
             </label>
-            <p className="text-xs text-gray-400 mb-2">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
               This device doesn't have your encryption keys. Enter the recovery code from when you registered.
             </p>
             <div className="relative">
@@ -173,10 +173,10 @@ const LoginForm: React.FC = () => {
         
         {(needsEncryptionPassphrase || needsRecoveryCode) && (
           <div className="mb-8">
-            <label htmlFor="encryption-passphrase-login" className="block text-sm font-semibold text-gray-300 mb-2">
+            <label htmlFor="encryption-passphrase-login" className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
               Encryption Passphrase <span className="text-red-400">*</span>
             </label>
-            <p className="text-xs text-gray-400 mb-2">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
               Enter the encryption passphrase you created during registration to unlock your keys.
             </p>
             <div className="relative">
@@ -226,7 +226,7 @@ const LoginForm: React.FC = () => {
         </button>
       </form>
       
-      <div className="mt-8 text-center text-sm text-gray-400">
+      <div className="mt-8 text-center text-sm text-slate-500 dark:text-slate-400">
         Don't have an account?{' '}
         <Link to="/register" className="font-semibold text-primary-500 hover:text-primary-600 transition-colors duration-200">
           Register

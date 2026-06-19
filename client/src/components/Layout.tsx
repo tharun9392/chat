@@ -40,6 +40,32 @@ const Layout: React.FC = () => {
     return <Outlet />;
   }
 
+  const pathname = location.pathname;
+  const isChatRoute = pathname.startsWith('/chat/');
+  const isHomeRoute = pathname === '/';
+  
+  // Responsive sidebar classes: full-screen on mobile home, hidden on mobile chat, visible on desktop
+  let sidebarClassName = "w-full md:w-80 lg:w-96 ";
+  if (isHomeRoute) {
+    sidebarClassName += "flex";
+  } else if (isChatRoute) {
+    sidebarClassName += "hidden md:flex";
+  } else {
+    // Hide sidebar on /profile, /admin, etc., on both mobile and desktop
+    sidebarClassName += "hidden";
+  }
+
+  // Responsive main container classes: hidden on mobile home, full-screen on mobile chat, flex-1 on desktop
+  let mainContainerClassName = "flex flex-col overflow-hidden relative border-l border-white/20 dark:border-white/5 bg-slate-50/50 dark:bg-dark-900/60 ";
+  if (isHomeRoute) {
+    mainContainerClassName += "hidden md:flex md:flex-1";
+  } else if (isChatRoute) {
+    mainContainerClassName += "flex w-full md:flex-1";
+  } else {
+    // Full width for /profile, /admin
+    mainContainerClassName += "flex w-full";
+  }
+
   return (
     <div className="flex h-screen bg-slate-100 dark:bg-dark-900 font-sans text-slate-800 dark:text-slate-200 selection:bg-primary-500 selection:text-white">
       {/* Dynamic animated abstract background (subtle) */}
@@ -50,10 +76,10 @@ const Layout: React.FC = () => {
 
       <div className="z-10 flex w-full h-full shadow-2xl overflow-hidden backdrop-blur-sm bg-white/30 dark:bg-dark-900/40">
         {/* WhatsApp Style Sidebar */}
-        <Sidebar />
+        <Sidebar className={sidebarClassName} />
         
         {/* Main content area */}
-        <div className="flex-1 flex flex-col overflow-hidden relative border-l border-white/20 dark:border-white/5 bg-slate-50/50 dark:bg-dark-900/60">
+        <div className={mainContainerClassName}>
           <main className="flex-1 overflow-y-auto w-full h-full">
             <Outlet />
           </main>

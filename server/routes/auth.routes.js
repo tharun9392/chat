@@ -6,6 +6,34 @@ const sodium = require('libsodium-wrappers');
 
 const router = express.Router();
 
+// Helper to generate access and refresh tokens
+const generateTokens = async (userId) => {
+  const accessToken = jwt.sign(
+    { userId, type: 'access', jti: Math.random().toString(36).substring(2) + Date.now() },
+    process.env.JWT_SECRET || 'yourSecretKeyForJWTAuthentication',
+    { expiresIn: '15m' }
+  );
+
+  const refreshToken = jwt.sign(
+    { userId, type: 'refresh', jti: Math.random().toString(36).substring(2) + Date.now() },
+    process.env.REFRESH_TOKEN_SECRET || 'yourSecretKeyForJWTRefreshToken',
+    { expiresIn: '7d' }
+  );
+
+  // Keep a maximum of 10 active sessions/refresh tokens to prevent database bloat
+  const user = await User.findById(userId);
+  let refreshTokens = user.refreshTokens || [];
+  
+  refreshTokens.push(refreshToken);
+  if (refreshTokens.length > 10) {
+    refreshTokens = refreshTokens.slice(refreshTokens.length - 10);
+  }
+  
+  await User.findByIdAndUpdate(userId, { $set: { refreshTokens } });
+
+  return { accessToken, refreshToken };
+};
+
 // Register a new user
 router.post('/register', async (req, res) => {
   try {
@@ -54,16 +82,13 @@ router.post('/register', async (req, res) => {
         
         console.log('User created successfully:', user);
         
-        // Generate JWT token
-        const token = jwt.sign(
-          { userId: user._id },
-          process.env.JWT_SECRET || 'yourSecretKeyForJWTAuthentication',
-          { expiresIn: '7d' }
-        );
+        // Generate Access and Refresh tokens
+        const { accessToken, refreshToken } = await generateTokens(user._id);
         
         res.status(201).json({
           message: 'User registered successfully',
-          token,
+          token: accessToken,
+          refreshToken,
           user: {
             id: user._id,
             _id: user._id,
@@ -137,7 +162,7 @@ router.post('/login', async (req, res) => {
       });
     }
     
-    console.log('Authentication successful! Generating token...');
+    console.log('Authentication successful! Generating tokens...');
     
     // Update last seen
     try {
@@ -147,18 +172,15 @@ router.post('/login', async (req, res) => {
       // Continue anyway - this is non-critical
     }
     
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user._id },
-      process.env.JWT_SECRET || 'yourSecretKeyForJWTAuthentication',
-      { expiresIn: '7d' }
-    );
+    // Generate Access and Refresh tokens
+    const { accessToken, refreshToken } = await generateTokens(user._id);
     
-    console.log('Token generated. Sending response...');
+    console.log('Tokens generated. Sending response...');
     
     return res.status(200).json({
       message: 'Login successful',
-      token,
+      token: accessToken,
+      refreshToken,
       user: {
         id: user._id,
         _id: user._id,
@@ -176,6 +198,92 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('=== LOGIN ERROR ===', error);
     console.error('Error stack:', error.stack);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Refresh access token
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      return res.status(400).json({ message: 'Refresh token is required' });
+    }
+    
+    // Verify refresh token
+    let decoded;
+    try {
+      decoded = jwt.verify(
+        refreshToken,
+        process.env.REFRESH_TOKEN_SECRET || 'yourSecretKeyForJWTRefreshToken'
+      );
+    } catch (jwtError) {
+      console.error('Refresh token verification failed:', jwtError.message);
+      return res.status(401).json({ message: 'Invalid or expired refresh token' });
+    }
+    
+    // Check if user exists and has this refresh token
+    const user = await User.findById(decoded.userId);
+    if (!user || !user.refreshTokens || !user.refreshTokens.includes(refreshToken)) {
+      console.error('Refresh token is invalid or has been revoked');
+      return res.status(401).json({ message: 'Session expired or revoked. Please log in again.' });
+    }
+    
+    // Generate new Access and Refresh tokens (token rotation)
+    const newAccessToken = jwt.sign(
+      { userId: user._id, type: 'access', jti: Math.random().toString(36).substring(2) + Date.now() },
+      process.env.JWT_SECRET || 'yourSecretKeyForJWTAuthentication',
+      { expiresIn: '15m' }
+    );
+    
+    const newRefreshToken = jwt.sign(
+      { userId: user._id, type: 'refresh', jti: Math.random().toString(36).substring(2) + Date.now() },
+      process.env.REFRESH_TOKEN_SECRET || 'yourSecretKeyForJWTRefreshToken',
+      { expiresIn: '7d' }
+    );
+    
+    // Rotate the refresh token: remove old, push new
+    let refreshTokens = user.refreshTokens.filter(token => String(token) !== String(refreshToken));
+    refreshTokens.push(newRefreshToken);
+    if (refreshTokens.length > 10) {
+      refreshTokens = refreshTokens.slice(refreshTokens.length - 10);
+    }
+    
+    await User.findByIdAndUpdate(user._id, { $set: { refreshTokens } });
+    
+    res.json({
+      token: newAccessToken,
+      refreshToken: newRefreshToken
+    });
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Logout / invalidate refresh token
+router.post('/logout', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (refreshToken) {
+      try {
+        const decoded = jwt.decode(refreshToken);
+        if (decoded && decoded.userId) {
+          await User.findByIdAndUpdate(decoded.userId, {
+            $pull: { refreshTokens: refreshToken }
+          });
+          console.log(`Successfully revoked refresh token for user ${decoded.userId}`);
+        }
+      } catch (err) {
+        console.error('Error decoding/revoking refresh token during logout:', err);
+      }
+    }
+    
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Logout error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -226,26 +334,4 @@ router.post('/change-password', authMiddleware, async (req, res) => {
   }
 });
 
-// Get current user (session restoration)
-router.get('/me', authMiddleware, async (req, res) => {
-  try {
-    const user = req.user;
-    res.json({
-      user: {
-        id: user._id,
-        _id: user._id,
-        username: user.username,
-        displayName: user.displayName,
-        profilePic: user.profilePic,
-        isAdmin: user.isAdmin,
-        publicKey: user.publicKey,
-        privateKey: user.privateKey,
-        settings: user.settings
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-module.exports = router; 
+module.exports = router;

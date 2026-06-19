@@ -11,7 +11,11 @@ import { useCall } from '../context/CallContext';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5002/api';
 
-const Sidebar: React.FC = () => {
+interface SidebarProps {
+  className?: string;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ className = "" }) => {
   const { user, logout, token } = useAuth();
   const { toggleTheme, isDark } = useTheme();
   const { chats, isLoading, fetchChats, appendChat } = useChats();
@@ -162,7 +166,7 @@ const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="flex flex-col w-80 md:w-96 h-full bg-white/60 dark:bg-dark-900/60 backdrop-blur-md border-r border-slate-200/50 dark:border-white/5 transition-colors duration-300">
+    <aside className={`flex flex-col h-full bg-white/60 dark:bg-dark-900/60 backdrop-blur-md border-r border-slate-200/50 dark:border-white/5 transition-colors duration-300 ${className}`}>
       {/* Sidebar Header */}
       <div className="relative z-[100] p-4 bg-white/40 dark:bg-dark-800/40 backdrop-blur-sm flex items-center justify-between border-b border-slate-200/50 dark:border-white/5 shadow-sm">
         <div className="flex items-center space-x-3">

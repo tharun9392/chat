@@ -69,14 +69,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     privateKey: null,
   });
   const [isEncryptionReady, setIsEncryptionReady] = useState(false);
+
+  // Define logout early so it is available to interceptors and verifyToken
+  const logout = async () => {
+    const currentRefreshToken = localStorage.getItem('refreshToken');
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('theme');
+    
+    if (currentRefreshToken) {
+      try {
+        await axios.post(`${API_URL}/auth/logout`, { refreshToken: currentRefreshToken });
+      } catch (err) {
+        console.error('Failed to log out from server:', err);
+      }
+    }
+  };
   
-  // Set up axios interceptors for authentication
+  // Set up axios interceptors for authentication and silent token refresh
   useEffect(() => {
-    const interceptor = axios.interceptors.request.use(
+    const requestInterceptor = axios.interceptors.request.use(
       config => {
-        const token = localStorage.getItem('token');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
+        const storedToken = localStorage.getItem('token');
+        if (storedToken) {
+          config.headers.Authorization = `Bearer ${storedToken}`;
         }
         return config;
       },
@@ -85,30 +103,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
     
+    const responseInterceptor = axios.interceptors.response.use(
+      response => response,
+      async error => {
+        const originalRequest = error.config;
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          originalRequest._retry = true;
+          const currentRefreshToken = localStorage.getItem('refreshToken');
+          
+          if (currentRefreshToken) {
+            try {
+              console.log('Access token expired, attempting silent refresh...');
+              const response = await axios.post(`${API_URL}/auth/refresh`, {
+                refreshToken: currentRefreshToken
+              });
+              const { token: newAccessToken, refreshToken: newRefreshToken } = response.data;
+              
+              localStorage.setItem('token', newAccessToken);
+              localStorage.setItem('refreshToken', newRefreshToken);
+              setToken(newAccessToken);
+              
+              // Retry original request
+              originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+              return axios(originalRequest);
+            } catch (refreshError) {
+              console.error('Silent refresh failed, logging out...', refreshError);
+              logout();
+              return Promise.reject(refreshError);
+            }
+          } else {
+            logout();
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+    
     return () => {
-      axios.interceptors.request.eject(interceptor);
+      axios.interceptors.request.eject(requestInterceptor);
+      axios.interceptors.response.eject(responseInterceptor);
     };
   }, [token]);
   
   // Check if user is authenticated on initial load
   useEffect(() => {
     const verifyToken = async () => {
-      if (!token) {
+      const storedToken = localStorage.getItem('token');
+      const storedRefreshToken = localStorage.getItem('refreshToken');
+      
+      if (!storedToken) {
         setIsLoading(false);
         return;
       }
       
       try {
         const response = await axios.get(`${API_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${storedToken}` }
         });
         
         setUser(response.data.user);
-        
-        // Ensure keys exist locally for the user and match server
         await ensureKeypair(response.data.user.id, response.data.user.publicKey, response.data.user.privateKey);
       } catch (error) {
-        logout();
+        // If access token is expired, try to refresh immediately during initial load
+        if (storedRefreshToken) {
+          try {
+            console.log('Initial load: Access token invalid, attempting silent refresh...');
+            const refreshResponse = await axios.post(`${API_URL}/auth/refresh`, {
+              refreshToken: storedRefreshToken
+            });
+            const { token: newAccessToken, refreshToken: newRefreshToken } = refreshResponse.data;
+            
+            localStorage.setItem('token', newAccessToken);
+            localStorage.setItem('refreshToken', newRefreshToken);
+            setToken(newAccessToken);
+            
+            // Re-fetch user details with new access token
+            const userResponse = await axios.get(`${API_URL}/auth/me`, {
+              headers: { Authorization: `Bearer ${newAccessToken}` }
+            });
+            setUser(userResponse.data.user);
+            await ensureKeypair(userResponse.data.user.id, userResponse.data.user.publicKey, userResponse.data.user.privateKey);
+          } catch (refreshError) {
+            console.error('Initial load refresh failed, logging out...');
+            logout();
+          }
+        } else {
+          logout();
+        }
       } finally {
         setIsLoading(false);
       }
@@ -363,10 +444,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password
       });
       
-      const { token, user } = response.data;
+      const { token, refreshToken, user } = response.data;
       
       console.log('Login successful! Setting token and user...');
       localStorage.setItem('token', token);
+      localStorage.setItem('refreshToken', refreshToken);
       setToken(token);
       setUser(user);
       
@@ -385,7 +467,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // No passphrase - try to use local keys or auto-generate
       else {
         console.log('No passphrase provided - checking for local keys or auto-generating');
-        // Let ensureKeypair handle both cases: local keys with stored passphrase, or auto-generation
         await ensureKeypair(user.id, user.publicKey, user.privateKey);
       }
       
@@ -410,9 +491,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password
       });
       
-      const { token, user, privateKey } = response.data;
+      const { token, refreshToken, user, privateKey } = response.data;
       
       localStorage.setItem('token', token);
+      localStorage.setItem('refreshToken', refreshToken);
       setToken(token);
       setUser(user);
       
@@ -439,17 +521,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Registration error:', error);
       throw error;
     }
-  };
-  
-  // Logout function
-  const logout = () => {
-    setUser(null);
-    setToken(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('theme');
-    // We do NOT clear chat_pubkey_ or chat_privkey_ here
-    // This allows users to persist their encryption keys on this device
-    // even after logging out, so old messages remain readable.
   };
   
   // Update user settings

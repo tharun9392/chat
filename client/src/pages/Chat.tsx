@@ -877,7 +877,16 @@ const Chat: React.FC = () => {
       {/* Chat header */}
       <div className="flex items-center justify-between px-6 py-4 glass-panel rounded-none border-t-0 border-l-0 border-r-0 z-30 shadow-sm transition-colors duration-300">
         <div className="flex items-center">
-          <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${getAvatarColor(otherUser.username)} flex items-center justify-center text-white font-bold overflow-hidden shadow-md ring-2 ring-white/50 dark:ring-dark-700`}>
+          <button 
+            onClick={() => navigate('/')} 
+            className="mr-3 p-1.5 rounded-full text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 block md:hidden hover:bg-slate-100 dark:hover:bg-dark-800 focus:outline-none transition-colors duration-200"
+            aria-label="Back to chats"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+          <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${getAvatarColor(otherUser.username)} flex items-center justify-center text-white font-bold overflow-hidden shadow-md ring-2 ring-white/50 dark:ring-dark-700 flex-shrink-0`}>
             {otherUser.profilePic ? (
               <img src={otherUser.profilePic} alt={otherUser.username} className="w-full h-full object-cover" />
             ) : (

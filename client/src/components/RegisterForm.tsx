@@ -180,7 +180,7 @@ const RegisterForm: React.FC = () => {
         </button>
       </form>
       
-      <div className="mt-8 text-center text-sm text-gray-400">
+      <div className="mt-8 text-center text-sm text-slate-500 dark:text-slate-400">
         Already have an account?{' '}
         <Link to="/login" className="font-semibold text-primary-500 hover:text-primary-600 transition-colors duration-200">
           Login

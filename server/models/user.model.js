@@ -13,6 +13,7 @@ const userSchema = new mongoose.Schema({
   blockedUsers: [{ type: String }],
   profilePic: { type: String, default: '' },
   lastSeen: { type: Date, default: Date.now },
+  refreshTokens: [{ type: String }]
 }, { 
   timestamps: true,
   // Ensure _id is returned as a string if needed, although Mongoose does this by default via .id

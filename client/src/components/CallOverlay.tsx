@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useCall } from '../context/CallContext';
+import { useAuth } from '../context/AuthContext';
 
 const CallOverlay: React.FC = () => {
+  const { user } = useAuth();
   const {
     isCalling,
     incomingCall,
@@ -23,23 +25,216 @@ const CallOverlay: React.FC = () => {
     callDuration,
     formatDuration,
 
-    // New symmetric variables and functions
+    // WebRTC calling state variables
     callStatus,
     isRemoteMuted,
     isRemoteVideoOff,
-    isScreenSharing,
-    isRemoteScreenSharing,
     networkQuality,
-    activeReaction,
-    sendReaction,
-    startScreenShare,
-    stopScreenShare,
-    audioDevices,
-    selectedAudioDevice,
-    changeAudioOutput,
     isSpeakerOff,
-    toggleSpeaker
+    toggleSpeaker,
+    videoFilter,
+    remoteVideoFilter,
+    setLocalVideoFilter
   } = useCall();
+
+  const [showControls, setShowControls] = useState(true);
+
+  // Draggable PIP State and Refs
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [snappedCorner, setSnappedCorner] = useState<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>('top-right');
+  const pipRef = useRef<HTMLDivElement>(null);
+  const dragStartOffset = useRef({ x: 0, y: 0 });
+  const [showFilterName, setShowFilterName] = useState(false);
+
+  const getCornerCoordinates = useCallback((
+    corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
+    width: number,
+    height: number
+  ) => {
+    const minX = 16;
+    const maxX = window.innerWidth - width - 16;
+    const minY = 96;
+    const maxY = window.innerHeight - height - 140;
+
+    switch (corner) {
+      case 'top-left':
+        return { x: minX, y: minY };
+      case 'top-right':
+        return { x: maxX, y: minY };
+      case 'bottom-left':
+        return { x: minX, y: maxY };
+      case 'bottom-right':
+        return { x: maxX, y: maxY };
+      default:
+        return { x: maxX, y: minY };
+    }
+  }, []);
+
+  // Sync position on window resize
+  useEffect(() => {
+    if (position === null) return;
+    
+    const handleResize = () => {
+      if (!pipRef.current) return;
+      const rect = pipRef.current.getBoundingClientRect();
+      const coords = getCornerCoordinates(snappedCorner, rect.width, rect.height);
+      setPosition(coords);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [position, snappedCorner, getCornerCoordinates]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Only drag with primary mouse button or touch
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+    const pipElement = pipRef.current;
+    if (!pipElement) return;
+
+    try {
+      pipElement.setPointerCapture(e.pointerId);
+    } catch (err) {
+      console.warn('Failed to set pointer capture:', err);
+    }
+
+    const rect = pipElement.getBoundingClientRect();
+    
+    dragStartOffset.current = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+
+    setIsDragging(true);
+    setPosition({ x: rect.left, y: rect.top });
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+
+    const pipElement = pipRef.current;
+    if (!pipElement) return;
+
+    const rect = pipElement.getBoundingClientRect();
+
+    const newX = e.clientX - dragStartOffset.current.x;
+    const newY = e.clientY - dragStartOffset.current.y;
+
+    const minX = 16;
+    const maxX = window.innerWidth - rect.width - 16;
+    const minY = 96;
+    const maxY = window.innerHeight - rect.height - 140;
+
+    const clampedX = Math.max(minX, Math.min(maxX, newX));
+    const clampedY = Math.max(minY, Math.min(maxY, newY));
+
+    setPosition({ x: clampedX, y: clampedY });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+
+    const pipElement = pipRef.current;
+    if (!pipElement) return;
+
+    try {
+      pipElement.releasePointerCapture(e.pointerId);
+    } catch (err) {
+      console.warn('Failed to release pointer capture:', err);
+    }
+
+    setIsDragging(false);
+
+    const rect = pipElement.getBoundingClientRect();
+
+    const minX = 16;
+    const maxX = window.innerWidth - rect.width - 16;
+    const minY = 96;
+    const maxY = window.innerHeight - rect.height - 140;
+
+    const currentX = position ? position.x : rect.left;
+    const currentY = position ? position.y : rect.top;
+
+    const corners = [
+      { x: minX, y: minY, name: 'top-left' as const },
+      { x: maxX, y: minY, name: 'top-right' as const },
+      { x: minX, y: maxY, name: 'bottom-left' as const },
+      { x: maxX, y: maxY, name: 'bottom-right' as const }
+    ];
+
+    let closestCorner = corners[1]; // default to top-right
+    let minDistanceSq = Infinity;
+
+    corners.forEach(corner => {
+      const dx = currentX - corner.x;
+      const dy = currentY - corner.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < minDistanceSq) {
+        minDistanceSq = distSq;
+        closestCorner = corner;
+      }
+    });
+
+    setPosition({ x: closestCorner.x, y: closestCorner.y });
+    setSnappedCorner(closestCorner.name);
+  };
+
+  // Inline styling object for PIP wrapper
+  const pipStyle: React.CSSProperties = {
+    touchAction: 'none',
+    cursor: isDragging ? 'grabbing' : 'grab',
+    position: 'absolute',
+    ...(position
+      ? {
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          right: 'auto',
+          margin: 0,
+          transition: isDragging
+            ? 'none'
+            : 'left 0.3s cubic-bezier(0.25, 1, 0.5, 1), top 0.3s cubic-bezier(0.25, 1, 0.5, 1)'
+        }
+      : {
+          top: '96px',
+          right: '24px',
+          transition: 'left 0.3s cubic-bezier(0.25, 1, 0.5, 1), top 0.3s cubic-bezier(0.25, 1, 0.5, 1)'
+        })
+  };
+
+  // Auto-hide controls timer (Video call only)
+  useEffect(() => {
+    if (!callActive || callType !== 'video') {
+      setShowControls(true);
+      return;
+    }
+
+    let timer: NodeJS.Timeout;
+    const resetTimer = () => {
+      setShowControls(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        setShowControls(false);
+      }, 3500); // Hide controls after 3.5 seconds of inactivity
+    };
+
+    // Add listeners
+    window.addEventListener('mousemove', resetTimer);
+    window.addEventListener('mousedown', resetTimer);
+    window.addEventListener('touchstart', resetTimer);
+    window.addEventListener('keydown', resetTimer);
+
+    // Initialize timer
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('mousemove', resetTimer);
+      window.removeEventListener('mousedown', resetTimer);
+      window.removeEventListener('touchstart', resetTimer);
+      window.removeEventListener('keydown', resetTimer);
+    };
+  }, [callActive, callType]);
 
   const localVideoRef = useCallback((node: HTMLVideoElement | null) => {
     if (node && localStream) {
@@ -67,10 +262,22 @@ const CallOverlay: React.FC = () => {
 
   const outgoingAudioRef = useRef<HTMLAudioElement>(null);
   const incomingAudioRef = useRef<HTMLAudioElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
-  const [showEmojiMenu, setShowEmojiMenu] = useState(false);
-  const [showDeviceMenu, setShowDeviceMenu] = useState(false);
-  const [isLocalBlurred, setIsLocalBlurred] = useState(false);
+  const remoteAudioRefCallback = useCallback((node: HTMLAudioElement | null) => {
+    if (node) {
+      remoteAudioRef.current = node;
+      if (remoteStream) {
+        if (node.srcObject !== remoteStream) {
+          console.log('CallOverlay: Attaching remote audio stream via callback ref', remoteStream.id);
+          node.srcObject = remoteStream;
+        }
+        node.play().catch(e => {
+          if (e.name !== 'AbortError') console.error("Remote audio play failed:", e);
+        });
+      }
+    }
+  }, [remoteStream]);
 
   // Sound URLs (Standard calling/ringing tones)
   const OUTGOING_RING_URL = "https://assets.mixkit.co/active_storage/sfx/1358/1358-preview.mp3";
@@ -126,17 +333,6 @@ const CallOverlay: React.FC = () => {
     remoteStream.getVideoTracks().length === 0 ||
     isRemoteVideoOff;
 
-  const toggleFullscreen = () => {
-    const container = document.getElementById('call-container');
-    if (container) {
-      if (!document.fullscreenElement) {
-        container.requestFullscreen().catch(err => console.error('Fullscreen failed:', err));
-      } else {
-        document.exitFullscreen();
-      }
-    }
-  };
-
   const persistentAudio = (
     <>
       <audio ref={outgoingAudioRef} src={OUTGOING_RING_URL} preload="auto" />
@@ -144,67 +340,69 @@ const CallOverlay: React.FC = () => {
     </>
   );
 
-  if (!isCalling && !incomingCall && !callActive && callStatus !== 'ended') return persistentAudio;
+  const isVideoCall = callType === 'video' || (incomingCall && incomingCall.type === 'video');
+  const showPip = isVideoCall && !isMinimized;
 
-  // Render floating reaction emoji
-  const renderReaction = () => {
-    if (!activeReaction) return null;
-    return (
-      <div 
-        key={activeReaction.id}
-        className="absolute bottom-36 left-1/2 -translate-x-1/2 pointer-events-none z-50 text-7xl select-none"
-        style={{
-          animation: 'floatUp 2.5s cubic-bezier(0.25, 1, 0.50, 1) forwards'
-        }}
-      >
-        {activeReaction.emoji}
-      </div>
-    );
+  const filterList = ['none', 'cyberpunk', 'vintage', 'noir', 'warm', 'cool'];
+
+  const getCssFilter = (filterName: string) => {
+    switch (filterName) {
+      case 'cyberpunk':
+        return 'hue-rotate(180deg) saturate(1.6) contrast(1.2) brightness(0.95)';
+      case 'vintage':
+        return 'sepia(0.65) contrast(1.15) brightness(0.95) saturate(0.95)';
+      case 'noir':
+        return 'grayscale(1) contrast(1.45) brightness(0.95)';
+      case 'warm':
+        return 'sepia(0.3) saturate(1.4) hue-rotate(-10deg) contrast(1.1)';
+      case 'cool':
+        return 'saturate(1.15) hue-rotate(15deg) brightness(1.05) contrast(0.95)';
+      default:
+        return 'none';
+    }
   };
+
+  const cycleFilter = (e: React.MouseEvent) => {
+    e.stopPropagation(); // prevent drag
+    const currentIndex = filterList.indexOf(videoFilter);
+    const nextIndex = (currentIndex + 1) % filterList.length;
+    setLocalVideoFilter(filterList[nextIndex]);
+  };
+
+  useEffect(() => {
+    if (videoFilter === 'none') return;
+    setShowFilterName(true);
+    const t = setTimeout(() => setShowFilterName(false), 1200);
+    return () => clearTimeout(t);
+  }, [videoFilter]);
+
+  if (!isCalling && !incomingCall && !callActive && callStatus !== 'ended') return persistentAudio;
 
   // Minimized Mode (Floating window)
   if (isMinimized) {
     return (
-      <div className="fixed bottom-6 right-6 z-[200] w-56 h-76 rounded-3xl overflow-hidden shadow-2xl border border-white/10 bg-slate-950 flex flex-col group animate-fade-in ring-1 ring-white/10">
+      <div className="fixed bottom-6 right-6 z-[200] w-40 h-56 rounded-3xl overflow-hidden shadow-2xl border border-white/10 bg-slate-950 flex flex-col group animate-fade-in ring-1 ring-white/10">
         {persistentAudio}
         
-        {/* Minimized Content Display */}
         <div className="flex-1 relative bg-black flex items-center justify-center">
           {!showRemoteAvatar && remoteStream ? (
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
+              muted={true}
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="flex flex-col items-center space-y-3">
-              <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center text-xl font-bold text-white shadow-md overflow-hidden relative border border-white/10">
+            <div className="flex flex-col items-center space-y-2">
+              <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-lg font-bold text-white shadow-md overflow-hidden relative border border-white/10">
                 {displayUser.pic ? (
                   <img src={displayUser.pic} alt={displayUser.name} className="w-full h-full object-cover" />
                 ) : (
                   displayUser.name.charAt(0).toUpperCase()
                 )}
-                {isRemoteMuted && (
-                  <div className="absolute bottom-0 right-0 bg-rose-500 p-1 rounded-full text-white ring-1 ring-white">
-                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                  </div>
-                )}
               </div>
-              <p className="text-xs text-white/90 font-bold truncate max-w-[150px]">{displayUser.name}</p>
-            </div>
-          )}
-          
-          {/* Mini local preview */}
-          {callType === 'video' && !isVideoOff && localStream && (
-            <div className="absolute top-2 right-2 w-16 h-24 rounded-xl overflow-hidden border border-white/20 shadow-lg">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className={`w-full h-full object-cover mirror ${isLocalBlurred ? 'blur-sm' : ''}`}
-              />
+              <p className="text-[10px] text-white/90 font-bold truncate max-w-[100px]">{displayUser.name}</p>
             </div>
           )}
         </div>
@@ -214,32 +412,32 @@ const CallOverlay: React.FC = () => {
           <div className="flex justify-between items-center">
             <button
               onClick={() => setIsMinimized(false)}
-              className="p-1.5 rounded-xl bg-black/40 hover:bg-black/80 text-white transition-all border border-white/5"
+              className="p-1 rounded-lg bg-black/40 hover:bg-black/80 text-white transition-all"
               title="Maximize"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4h6v6M20 20h-6v-6M4 20l6-6M20 4l-6 6" />
               </svg>
             </button>
-            <span className="text-[10px] font-mono text-white bg-black/40 px-2 py-0.5 rounded-full border border-white/5">
+            <span className="text-[9px] font-mono text-white bg-black/40 px-1.5 py-0.5 rounded-full">
               {formatDuration(callDuration)}
             </span>
           </div>
           
-          <div className="flex justify-center space-x-3">
+          <div className="flex justify-center space-x-2">
             <button
               onClick={toggleAudio}
-              className={`p-2 rounded-full transition-all ${isAudioMuted ? 'bg-red-500 text-white' : 'bg-white/20 hover:bg-white/40 text-white'}`}
+              className={`p-1.5 rounded-full transition-all ${isAudioMuted ? 'bg-red-500 text-white' : 'bg-white/20 hover:bg-white/40 text-white'}`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
               </svg>
             </button>
             <button
               onClick={endCall}
-              className="p-2 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-lg"
+              className="p-1.5 rounded-full bg-red-600 hover:bg-red-700 text-white"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 8l-8 8m0-8l8 8" /></svg>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 8l-8 8m0-8l8 8" /></svg>
             </button>
           </div>
         </div>
@@ -247,49 +445,21 @@ const CallOverlay: React.FC = () => {
     );
   }
 
-  // Helper to render network indicator
-  const renderNetworkIndicator = () => {
-    let color = 'bg-gray-400';
-    let label = 'Unknown';
-    if (networkQuality === 'excellent') { color = 'bg-emerald-500'; label = 'Excellent'; }
-    else if (networkQuality === 'good') { color = 'bg-yellow-500'; label = 'Good'; }
-    else if (networkQuality === 'poor') { color = 'bg-rose-500'; label = 'Poor'; }
-
-    return (
-      <div className="flex items-center space-x-2 bg-slate-800/40 backdrop-blur px-3 py-1.5 rounded-full border border-white/5">
-        <span className={`w-2.5 h-2.5 rounded-full ${color} animate-pulse`}></span>
-        <span className="text-xs font-semibold tracking-wide text-white/90">Net: {label}</span>
-      </div>
-    );
-  };
-
   return (
     <div id="call-container" className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950 text-white select-none overflow-hidden font-sans">
       {persistentAudio}
-      {renderReaction()}
+
+      {/* Hidden remote audio element to ensure audio track plays independently of video */}
+      <audio
+        ref={remoteAudioRefCallback}
+        autoPlay
+        playsInline
+        id="remoteAudio"
+        muted={isSpeakerOff}
+      />
 
       {/* Embedded CSS for animations */}
       <style>{`
-        @keyframes floatUp {
-          0% {
-            transform: translate(-50%, 0) scale(0.4) rotate(0deg);
-            opacity: 0;
-          }
-          15% {
-            transform: translate(-50%, -40px) scale(1.3) rotate(-15deg);
-            opacity: 1;
-          }
-          30% {
-            transform: translate(-50%, -80px) scale(1.1) rotate(15deg);
-          }
-          85% {
-            opacity: 0.9;
-          }
-          100% {
-            transform: translate(-50%, -400px) scale(0.9) rotate(0deg);
-            opacity: 0;
-          }
-        }
         @keyframes pulseRing {
           0% { transform: scale(0.95); opacity: 0.7; }
           50% { transform: scale(1.15); opacity: 0.4; }
@@ -298,39 +468,68 @@ const CallOverlay: React.FC = () => {
         .mirror {
           transform: scaleX(-1);
         }
+        @keyframes fadeInOut {
+          0% { opacity: 0; transform: translateY(4px); }
+          15% { opacity: 1; transform: translateY(0); }
+          85% { opacity: 1; transform: translateY(0); }
+          100% { opacity: 0; transform: translateY(-4px); }
+        }
+        .animate-fade-in-out {
+          animation: fadeInOut 1.2s ease-in-out forwards;
+        }
       `}</style>
 
       {/* Incoming Call Screen */}
       {incomingCall && !callActive && (
-        <div className="relative z-10 p-8 max-w-sm w-full text-center space-y-8 animate-slide-up bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-[32px] shadow-2xl ring-1 ring-white/10">
-          <div className="relative mx-auto w-28 h-28">
-            <div className="absolute inset-0 rounded-full bg-primary-500 animate-ping opacity-20"></div>
-            <div className="relative rounded-full bg-slate-800 w-28 h-28 flex items-center justify-center text-4xl font-bold text-primary-400 shadow-xl overflow-hidden ring-4 ring-primary-500/20">
-              {displayUser.pic ? (
-                <img src={displayUser.pic} alt={displayUser.name} className="w-full h-full object-cover" />
-              ) : (
-                displayUser.name.charAt(0).toUpperCase()
-              )}
+        <div className="relative z-10 w-full h-full flex flex-col justify-between items-center p-8 bg-slate-950 select-none overflow-hidden">
+          {/* Blurred Background profile image */}
+          {displayUser.pic ? (
+            <div className="absolute inset-0 scale-125 blur-3xl opacity-20 pointer-events-none">
+              <img src={displayUser.pic} alt="Background Blur" className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="absolute inset-0 bg-gradient-to-br from-indigo-950/20 via-slate-950 to-emerald-950/20 blur-3xl opacity-30 pointer-events-none"></div>
+          )}
+
+          {/* Caller Details */}
+          <div className="flex flex-col items-center mt-24 space-y-4 z-10">
+            <div className="relative w-28 h-28 md:w-36 md:h-36">
+              <div className="absolute inset-0 rounded-full bg-primary-500 animate-ping opacity-25 animate-duration-2000 pointer-events-none"></div>
+              <div className="relative rounded-full bg-slate-800 w-full h-full flex items-center justify-center text-4xl font-bold text-primary-400 shadow-2xl overflow-hidden ring-4 ring-white/10">
+                {displayUser.pic ? (
+                  <img src={displayUser.pic} alt={displayUser.name} className="w-full h-full object-cover" />
+                ) : (
+                  displayUser.name.charAt(0).toUpperCase()
+                )}
+              </div>
+            </div>
+            <div className="text-center space-y-2">
+              <h3 className="text-3xl font-extrabold text-white tracking-wide">{displayUser.name}</h3>
+              <p className="text-primary-400 text-sm font-semibold tracking-widest uppercase animate-pulse">
+                Incoming {incomingCall.type === 'video' ? 'Video' : 'Voice'} Call...
+              </p>
             </div>
           </div>
-          <div>
-            <h3 className="text-2xl font-bold text-white tracking-wide mb-2">{displayUser.name}</h3>
-            <p className="text-primary-400 text-sm font-semibold tracking-wider uppercase animate-pulse">Incoming {incomingCall.type} call...</p>
-          </div>
-          <div className="flex items-center justify-center space-x-6">
+
+          {/* Accept / Reject Buttons */}
+          <div className="flex items-center justify-center space-x-12 mb-20 z-10">
             <button
               onClick={rejectCall}
-              className="p-5 rounded-full bg-rose-500 text-white hover:bg-rose-600 transition-all transform hover:scale-115 active:scale-95 shadow-lg shadow-rose-500/25"
+              className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all transform hover:scale-110 active:scale-95 shadow-lg shadow-red-500/30"
               title="Decline"
             >
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 8l-8 8m0-8l8 8" /></svg>
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
             </button>
             <button
               onClick={answerCall}
-              className="p-5 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 transition-all transform hover:scale-115 active:scale-95 shadow-lg shadow-emerald-500/25"
+              className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center text-white transition-all transform hover:scale-110 active:scale-95 shadow-lg shadow-emerald-500/30"
               title="Accept"
             >
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+              </svg>
             </button>
           </div>
         </div>
@@ -341,347 +540,283 @@ const CallOverlay: React.FC = () => {
         <div className="relative w-full h-full flex flex-col bg-slate-950">
           
           {/* Header Bar */}
-          <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-start z-30 pointer-events-none">
-            {/* Left Header Info */}
-            <div className="pointer-events-auto flex items-center space-x-4 bg-slate-900/60 backdrop-blur px-4 py-2 rounded-2xl border border-white/5 shadow-lg">
-              <button
-                onClick={() => setIsMinimized(true)}
-                className="p-1 rounded-lg hover:bg-white/10 text-white transition-colors"
-                title="Minimize Call"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              <div className="h-6 w-[1px] bg-white/10"></div>
-              <div>
-                <p className="text-sm font-bold text-white tracking-wide truncate max-w-[140px]">{displayUser.name}</p>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-[10px] font-semibold text-white/60 tracking-wider uppercase">
-                    {callStatus === 'calling' && 'Calling...'}
-                    {callStatus === 'ringing' && 'Ringing...'}
-                    {callStatus === 'connecting' && 'Connecting...'}
-                    {callStatus === 'connected' && formatDuration(callDuration)}
-                    {callStatus === 'reconnecting' && 'Reconnecting...'}
-                    {callStatus === 'ended' && 'Call Ended'}
-                  </span>
-                </div>
-              </div>
-            </div>
+          <div className={`absolute top-0 left-0 right-0 p-6 flex justify-between items-center z-30 transition-all duration-300 ${(!showControls && callType === 'video') ? '-translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100 pointer-events-auto'}`}>
+            <button
+              onClick={() => setIsMinimized(true)}
+              className="p-2.5 rounded-full bg-slate-900/60 backdrop-blur border border-white/5 hover:bg-slate-800 text-white transition-all shadow-lg pointer-events-auto"
+              title="Minimize Call"
+            >
+              {/* WhatsApp-style back arrow chevron */}
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+            </button>
 
-            {/* Right Header Controls */}
-            <div className="pointer-events-auto flex items-center space-x-3">
-              {renderNetworkIndicator()}
-              <button
-                onClick={toggleFullscreen}
-                className="p-3.5 rounded-2xl bg-slate-900/60 backdrop-blur border border-white/5 hover:bg-slate-800 text-white transition-all shadow-lg"
-                title="Fullscreen Toggle"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" />
-                </svg>
-              </button>
+            {/* Network Quality Indicator */}
+            <div className="flex items-center space-x-2 bg-slate-900/60 backdrop-blur px-3 py-1.5 rounded-full border border-white/5 shadow-lg pointer-events-auto">
+              <span className={`w-2 h-2 rounded-full ${networkQuality === 'excellent' ? 'bg-emerald-500' : networkQuality === 'good' ? 'bg-yellow-500' : networkQuality === 'poor' ? 'bg-rose-500' : 'bg-gray-400'} animate-pulse`}></span>
+              <span className="text-[10px] font-bold text-white/90 uppercase tracking-wider">Secure Connection</span>
             </div>
           </div>
 
-          {/* Main Visual Window */}
-          <div className="flex-1 relative flex items-center justify-center">
-            
-            {/* REMOTE VIDEO FRAME OR AVATAR */}
-            {callType === 'video' ? (
-              <div className="w-full h-full relative flex items-center justify-center bg-black">
-                {/* Visualizer and backdrop for camera privacy */}
-                {showRemoteAvatar ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center relative bg-slate-950 overflow-hidden">
-                    {/* Blurred background profile image */}
-                    {displayUser.pic ? (
-                      <div className="absolute inset-0 scale-125 blur-3xl opacity-20 pointer-events-none">
-                        <img src={displayUser.pic} alt="Background" className="w-full h-full object-cover" />
-                      </div>
-                    ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-indigo-950/20 via-slate-950 to-emerald-950/20 blur-3xl opacity-30"></div>
-                    )}
-                    
-                    {/* Central Avatar */}
-                    <div className="relative z-10 flex flex-col items-center space-y-4">
-                      <div className="w-32 h-32 rounded-full bg-slate-800 flex items-center justify-center text-4xl font-bold text-white shadow-2xl border-4 border-slate-700 relative overflow-hidden">
-                        {displayUser.pic ? (
-                          <img src={displayUser.pic} alt={displayUser.name} className="w-full h-full object-cover" />
-                        ) : (
-                          displayUser.name.charAt(0).toUpperCase()
-                        )}
-                      </div>
-                      <div className="bg-slate-900/80 backdrop-blur border border-white/10 px-4 py-2 rounded-2xl flex items-center space-x-2">
-                        <svg className="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        <span className="text-xs text-white/90 font-medium">Camera is off</span>
-                      </div>
+          {/* MAIN CALL CONTAINER */}
+          {callType === 'video' ? (
+            /* ==================== VIDEO CALL INTERFACE ==================== */
+            <div className="flex-grow w-full h-full relative bg-black">
+              {/* Full Screen Remote Video */}
+              {!showRemoteAvatar ? (
+                remoteStream && (
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
+                    playsInline
+                    muted={true}
+                    id="remoteVideo"
+                    className="w-full h-full object-contain"
+                    style={{ filter: getCssFilter(remoteVideoFilter) }}
+                  />
+                )
+              ) : (
+                /* Remote Avatar (when their camera is off) */
+                <div className="w-full h-full flex flex-col items-center justify-center relative bg-slate-950">
+                  {displayUser.pic && (
+                    <div className="absolute inset-0 scale-125 blur-3xl opacity-20 pointer-events-none">
+                      <img src={displayUser.pic} alt="Background" className="w-full h-full object-cover" />
                     </div>
-                  </div>
-                ) : (
-                  remoteStream && (
-                    <video
-                      ref={remoteVideoRef}
-                      autoPlay
-                      playsInline
-                      className="w-full h-full object-contain"
-                    />
-                  )
-                )}
-
-                {/* Remote Mute Overlay Indicator */}
-                {isRemoteMuted && (
-                  <div className="absolute bottom-6 left-6 z-10 bg-rose-500/80 backdrop-blur text-white px-3 py-1.5 rounded-xl border border-rose-400/20 flex items-center space-x-2">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
-                    <span className="text-xs font-semibold tracking-wide">User Muted</span>
-                  </div>
-                )}
-
-                {/* Remote Screen Sharing Badge */}
-                {isRemoteScreenSharing && (
-                  <div className="absolute bottom-6 left-6 z-10 bg-primary-600/95 backdrop-blur text-white px-4 py-2 rounded-xl flex items-center space-x-2 border border-primary-500/30">
-                    <svg className="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                    <span className="text-xs font-semibold">Viewing shared screen</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* AUDIO CALL VISUALIZER (Premium pulsing rings) */
-              <div className="w-full h-full flex flex-col items-center justify-center relative bg-slate-950 overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-tr from-indigo-950/20 via-slate-950 to-primary-950/20 opacity-30"></div>
-                
-                {/* Profile Avatar with pulsing rings */}
-                <div className="relative flex items-center justify-center w-64 h-64">
-                  {callStatus === 'ringing' || callStatus === 'connecting' || callStatus === 'reconnecting' ? (
-                    <>
-                      <div className="absolute inset-0 rounded-full border border-primary-500 bg-primary-500/10 pointer-events-none" style={{ animation: 'pulseRing 3s linear infinite' }}></div>
-                      <div className="absolute inset-0 rounded-full border border-primary-500 bg-primary-500/5 pointer-events-none" style={{ animation: 'pulseRing 3s linear infinite', animationDelay: '1.5s' }}></div>
-                    </>
-                  ) : null}
-                  
-                  <div className="relative w-36 h-36 rounded-full bg-slate-800 flex items-center justify-center text-5xl font-bold text-white shadow-2xl border-4 border-slate-700 relative overflow-hidden">
-                    {displayUser.pic ? (
-                      <img src={displayUser.pic} alt={displayUser.name} className="w-full h-full object-cover" />
-                    ) : (
-                      displayUser.name.charAt(0).toUpperCase()
-                    )}
+                  )}
+                  <div className="relative z-10 flex flex-col items-center space-y-4">
+                    <div className="w-32 h-32 rounded-full bg-slate-800 flex items-center justify-center text-5xl font-bold text-white shadow-2xl border-4 border-slate-700 overflow-hidden">
+                      {displayUser.pic ? (
+                        <img src={displayUser.pic} alt={displayUser.name} className="w-full h-full object-cover" />
+                      ) : (
+                        displayUser.name.charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-white/70">Video turned off</p>
                   </div>
                 </div>
+              )}
 
-                <h3 className="mt-8 text-2xl font-bold text-white">{displayUser.name}</h3>
-                
-                {/* Audio Status Notifications */}
-                <div className="mt-4 flex flex-col items-center">
-                  <span className="bg-slate-900/60 border border-white/5 px-4 py-1.5 rounded-full text-xs font-bold text-primary-400 tracking-widest uppercase animate-pulse">
-                    {callStatus === 'calling' && 'Calling...'}
-                    {callStatus === 'ringing' && 'Ringing...'}
-                    {callStatus === 'connecting' && 'Connecting audio...'}
-                    {callStatus === 'connected' && 'Connected'}
-                    {callStatus === 'reconnecting' && 'Reconnecting...'}
-                    {callStatus === 'ended' && 'Call Ended'}
-                  </span>
-                  {isRemoteMuted && (
-                    <span className="mt-3 bg-rose-500/20 text-rose-400 px-3 py-1 rounded-xl text-xs font-semibold flex items-center space-x-1.5 border border-rose-500/10">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                      <span>Remote user is muted</span>
-                    </span>
+              {/* Remote Mute Indicator overlay */}
+              {isRemoteMuted && (
+                <div className="absolute bottom-28 left-6 z-30 bg-rose-600/80 backdrop-blur px-3 py-1.5 rounded-full border border-rose-500/20 text-white text-xs font-semibold flex items-center space-x-1.5">
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                  <span>Muted</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ==================== AUDIO CALL INTERFACE ==================== */
+            <div className="flex-grow w-full h-full flex flex-col items-center justify-center relative bg-slate-950 overflow-hidden p-6">
+              {/* Blurred backdrop using user image */}
+              {displayUser.pic ? (
+                <div className="absolute inset-0 scale-125 blur-3xl opacity-20 pointer-events-none">
+                  <img src={displayUser.pic} alt="Background" className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-950/20 via-slate-950 to-emerald-950/20 blur-3xl opacity-30 pointer-events-none"></div>
+              )}
+
+              {/* Pulsing Avatar in the middle */}
+              <div className="relative flex items-center justify-center w-64 h-64 z-10">
+                {callStatus === 'ringing' || callStatus === 'connecting' || callStatus === 'reconnecting' ? (
+                  <>
+                    <div className="absolute inset-0 rounded-full border border-primary-500 bg-primary-500/10 pointer-events-none" style={{ animation: 'pulseRing 3s linear infinite' }}></div>
+                    <div className="absolute inset-0 rounded-full border border-primary-500 bg-primary-500/5 pointer-events-none" style={{ animation: 'pulseRing 3s linear infinite', animationDelay: '1.5s' }}></div>
+                  </>
+                ) : null}
+                <div className="w-36 h-36 rounded-full bg-slate-800 flex items-center justify-center text-6xl font-bold text-white shadow-2xl border-4 border-slate-700 overflow-hidden">
+                  {displayUser.pic ? (
+                    <img src={displayUser.pic} alt={displayUser.name} className="w-full h-full object-cover" />
+                  ) : (
+                    displayUser.name.charAt(0).toUpperCase()
                   )}
                 </div>
               </div>
-            )}
 
-            {/* LOCAL PICTURE-IN-PICTURE PREVIEW (Video Calls only) */}
-            {callType === 'video' && (
-              <div className="absolute top-24 right-8 w-44 h-60 rounded-[24px] overflow-hidden shadow-2xl border-2 border-white/10 glass-panel bg-slate-900/50 animate-slide-left z-25 group-hover:scale-105 transition-transform duration-300">
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  id="localVideo"
-                  className={`w-full h-full object-cover mirror ${isVideoOff ? 'hidden' : 'block'} ${isLocalBlurred ? 'blur-md' : ''}`}
-                />
-                {isVideoOff && (
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900/90 backdrop-blur-sm space-y-2 p-4 text-center">
-                    <svg className="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2zm10-10l6 6m0-6l-6 6" /></svg>
-                    <span className="text-[10px] text-white/50 font-medium">Your camera is off</span>
-                  </div>
-                )}
-                {isScreenSharing && (
-                  <div className="absolute inset-0 bg-primary-600/90 flex flex-col items-center justify-center p-3 text-center space-y-2">
-                    <svg className="w-8 h-8 text-white animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                    <span className="text-[10px] font-bold">Sharing screen</span>
-                  </div>
+              {/* Call Details below Avatar */}
+              <div className="mt-8 text-center space-y-2 z-10 font-sans">
+                <h3 className="text-2xl font-bold text-white tracking-wide">{displayUser.name}</h3>
+                <p className="text-sm font-semibold tracking-wider text-primary-400 uppercase">
+                  {callStatus === 'calling' && 'Calling...'}
+                  {callStatus === 'ringing' && 'Ringing...'}
+                  {callStatus === 'connecting' && 'Connecting...'}
+                  {callStatus === 'connected' && formatDuration(callDuration)}
+                  {callStatus === 'reconnecting' && 'Reconnecting...'}
+                  {callStatus === 'ended' && 'Call Ended'}
+                </p>
+                {isRemoteMuted && (
+                  <span className="inline-block mt-3 bg-rose-500/20 text-rose-400 px-3 py-1 rounded-xl text-xs font-semibold border border-rose-500/10">
+                    Muted
+                  </span>
                 )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Control Bar Overlay */}
-          <div className="p-8 pb-12 flex flex-col items-center bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent absolute bottom-0 left-0 right-0 z-40">
+          {/* BOTTOM CONTROLS PANEL */}
+          <div className={`absolute bottom-0 left-0 right-0 p-8 pb-12 flex flex-col items-center bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent z-40 transition-all duration-300 ${(!showControls && callType === 'video') ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100 pointer-events-auto'}`}>
             
-            {/* Audio Output Selector Pop-up Menu */}
-            {showDeviceMenu && audioDevices.length > 0 && (
-              <div className="mb-4 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 w-72 shadow-2xl animate-fade-in flex flex-col space-y-2 text-left">
-                <p className="text-white/60 text-xs font-bold px-1.5 uppercase tracking-wider mb-1">Speaker Destination</p>
-                {audioDevices.map(device => (
-                  <button
-                    key={device.deviceId}
-                    onClick={() => {
-                      changeAudioOutput(device.deviceId);
-                      setShowDeviceMenu(false);
-                    }}
-                    className={`w-full p-3 rounded-xl text-left truncate transition-all text-xs font-medium flex items-center space-x-2 border ${selectedAudioDevice === device.deviceId ? 'bg-primary-500/20 border-primary-500/40 text-primary-300' : 'bg-transparent border-transparent hover:bg-white/5 text-white/95'}`}
-                  >
-                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
-                    <span className="truncate">{device.label || `Speaker ${device.deviceId.substring(0, 6)}...`}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+            {callType === 'video' ? (
+              /* Video Call Controls (5 Buttons) */
+              <div className="flex items-center space-x-4 px-6 py-4 rounded-3xl bg-slate-900/60 backdrop-blur-2xl border border-white/5 shadow-2xl">
+                
+                {/* Speaker Switch */}
+                <button
+                  onClick={toggleSpeaker}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isSpeakerOff ? 'bg-slate-800 text-white/50 border border-white/5' : 'bg-primary-500 text-white'}`}
+                  title={isSpeakerOff ? "Turn Speaker On" : "Turn Speaker Off"}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  </svg>
+                </button>
 
-            {/* Reaction Pop-up Emoji Bar */}
-            {showEmojiMenu && (
-              <div className="mb-4 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-3 flex space-x-3.5 shadow-2xl animate-fade-in">
-                {['👍', '❤️', '😂', '😮', '😢', '🎉'].map(emoji => (
-                  <button
-                    key={emoji}
-                    onClick={() => {
-                      sendReaction(emoji);
-                      setShowEmojiMenu(false);
-                    }}
-                    className="text-3xl hover:scale-130 transition-transform duration-200 active:scale-95 duration-100"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            )}
+                {/* Switch Camera */}
+                <button
+                  onClick={switchCamera}
+                  className="w-12 h-12 rounded-full flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white border border-white/5 transition-all"
+                  title="Switch Camera"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  </svg>
+                </button>
 
-            {/* Main Interactive Controls Grid */}
-            <div className="flex items-center space-x-4 px-6 py-4 rounded-3xl bg-slate-900/60 backdrop-blur-2xl border border-white/5 shadow-2xl ring-1 ring-white/5">
-              
-              {/* Mic Control Button */}
-              <button
-                onClick={toggleAudio}
-                className={`p-4 rounded-2xl transition-all duration-300 transform active:scale-95 ${isAudioMuted ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25 ring-2 ring-rose-500/20' : 'bg-slate-800/80 hover:bg-slate-700 text-white border border-white/5'}`}
-                title={isAudioMuted ? "Unmute Microphone" : "Mute Microphone"}
-              >
-                {isAudioMuted ? (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 3l18 18" /></svg>
-                ) : (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                )}
-              </button>
-
-              {/* Camera Toggle Button (Video Calls only) */}
-              {callType === 'video' && (
+                {/* Video Camera Toggle */}
                 <button
                   onClick={toggleVideo}
-                  className={`p-4 rounded-2xl transition-all duration-300 transform active:scale-95 ${isVideoOff ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25 ring-2 ring-rose-500/20' : 'bg-slate-800/80 hover:bg-slate-700 text-white border border-white/5'}`}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isVideoOff ? 'bg-rose-500 text-white' : 'bg-slate-800 hover:bg-slate-700 text-white border border-white/5'}`}
                   title={isVideoOff ? "Turn Camera On" : "Turn Camera Off"}
                 >
                   {isVideoOff ? (
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 3l18 18" /></svg>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2zm10-10l6 6m0-6l-6 6" /></svg>
                   ) : (
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                   )}
                 </button>
-              )}
 
-              {/* Screen Sharing Toggle Button */}
-              {callType === 'video' && (
+                {/* Mic Mute Toggle */}
                 <button
-                  onClick={isScreenSharing ? stopScreenShare : startScreenShare}
-                  className={`p-4 rounded-2xl transition-all duration-300 transform active:scale-95 ${isScreenSharing ? 'bg-primary-600 text-white shadow-lg' : 'bg-slate-800/80 hover:bg-slate-700 text-white border border-white/5'}`}
-                  title={isScreenSharing ? "Stop Sharing Screen" : "Share Screen"}
+                  onClick={toggleAudio}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isAudioMuted ? 'bg-rose-500 text-white' : 'bg-slate-800 hover:bg-slate-700 text-white border border-white/5'}`}
+                  title={isAudioMuted ? "Unmute Microphone" : "Mute Microphone"}
                 >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                </button>
-              )}
-
-              {/* Camera Switcher Button (Mobile/Video calls only) */}
-              {callType === 'video' && !isVideoOff && (
-                <button
-                  onClick={switchCamera}
-                  className="p-4 rounded-2xl bg-slate-800/80 hover:bg-slate-700 border border-white/5 text-white transition-all transform active:scale-95"
-                  title="Switch Camera (Front/Rear)"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </button>
-              )}
-
-              {/* Camera Blur/Privacy Toggle Button (Video calls only) */}
-              {callType === 'video' && !isVideoOff && (
-                <button
-                  onClick={() => setIsLocalBlurred(prev => !prev)}
-                  className={`p-4 rounded-2xl transition-all duration-300 transform active:scale-95 ${isLocalBlurred ? 'bg-primary-600 text-white shadow-lg' : 'bg-slate-800/80 hover:bg-slate-700 text-white border border-white/5'}`}
-                  title={isLocalBlurred ? "Remove Camera Blur" : "Blur My Background"}
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                </button>
-              )}
-
-              {/* Speaker Toggle and Audio Device Menu */}
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    if (audioDevices.length > 0) {
-                      setShowDeviceMenu(prev => !prev);
-                    } else {
-                      toggleSpeaker();
-                    }
-                  }}
-                  className={`p-4 rounded-2xl transition-all duration-300 transform active:scale-95 ${isSpeakerOff ? 'bg-rose-500 text-white shadow-lg' : 'bg-slate-800/80 hover:bg-slate-700 text-white border border-white/5'}`}
-                  title={isSpeakerOff ? "Turn Speaker On" : "Speaker Settings / Speaker Off"}
-                >
-                  {isSpeakerOff ? (
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 3l18 18" /></svg>
+                  {isAudioMuted ? (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 3l18 18" /></svg>
                   ) : (
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
                   )}
                 </button>
+
+                {/* End Call (Video) */}
+                <button
+                  onClick={endCall}
+                  className="w-14 h-14 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-lg transform active:scale-95"
+                  title="End Call"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 8l-8 8m0-8l8 8" />
+                  </svg>
+                </button>
+
               </div>
+            ) : (
+              /* Audio Call Controls (3 Buttons) */
+              <div className="flex items-center space-x-6 px-8 py-4 rounded-3xl bg-slate-900/60 backdrop-blur-2xl border border-white/5 shadow-2xl">
+                
+                {/* Speaker Toggle */}
+                <button
+                  onClick={toggleSpeaker}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all transform active:scale-95 ${isSpeakerOff ? 'bg-slate-800 text-white/50 border border-white/5' : 'bg-primary-500 text-white shadow-lg shadow-primary-500/20'}`}
+                  title={isSpeakerOff ? "Turn Speaker On" : "Turn Speaker Off"}
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  </svg>
+                </button>
 
-              {/* Emoji Drawer Button */}
-              <button
-                onClick={() => setShowEmojiMenu(prev => !prev)}
-                className={`p-4 rounded-2xl bg-slate-800/80 hover:bg-slate-700 text-white border border-white/5 transition-all transform active:scale-95 ${showEmojiMenu ? 'bg-primary-600/40 text-primary-200' : ''}`}
-                title="Send Emoji Reaction"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
+                {/* Mic Mute Toggle */}
+                <button
+                  onClick={toggleAudio}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all transform active:scale-95 ${isAudioMuted ? 'bg-rose-500 text-white shadow-lg' : 'bg-slate-800 hover:bg-slate-700 text-white border border-white/5'}`}
+                  title={isAudioMuted ? "Unmute Microphone" : "Mute Microphone"}
+                >
+                  {isAudioMuted ? (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 3l18 18" /></svg>
+                  ) : (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                  )}
+                </button>
 
-              {/* End Call Button */}
-              <button
-                onClick={endCall}
-                className="p-4.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white transition-all transform hover:scale-110 active:scale-95 shadow-xl shadow-rose-600/30 ring-4 ring-rose-600/20"
-                title="End Call"
-              >
-                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 8l-8 8m0-8l8 8" />
-                </svg>
-              </button>
+                {/* End Call (Audio) */}
+                <button
+                  onClick={endCall}
+                  className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-xl transform hover:scale-110 active:scale-95 shadow-rose-600/35"
+                  title="End Call"
+                >
+                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 8l-8 8m0-8l8 8" />
+                  </svg>
+                </button>
 
-            </div>
-
-            {/* Chat Notification Note */}
-            <div className="mt-4 flex items-center justify-center space-x-1 opacity-60">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-              <span className="text-[11px]">Minimize call to chat during the call</span>
-            </div>
+              </div>
+            )}
 
           </div>
+        </div>
+      )}
+
+      {/* Local Video floating PIP (Draggable Picture-in-Picture) */}
+      {showPip && (
+        <div
+          ref={pipRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          style={pipStyle}
+          className="w-[100px] h-[140px] sm:w-[120px] sm:h-[170px] md:w-[180px] md:h-[240px] rounded-2xl overflow-hidden shadow-2xl border border-white/20 bg-slate-900 z-50 select-none touch-none group"
+        >
+          {/* Floating Filter Button (Magic Wand) */}
+          {!isVideoOff && localStream && (
+            <button
+              onClick={cycleFilter}
+              className="absolute top-2 right-2 z-30 p-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 hover:bg-black/80 hover:scale-105 active:scale-95 text-white transition-all flex items-center justify-center pointer-events-auto shadow-md opacity-0 group-hover:opacity-100 touch-none"
+              title={`Cycle Filter: ${videoFilter}`}
+            >
+              <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 9.172V5L8 4z" />
+              </svg>
+            </button>
+          )}
+
+          {showFilterName && (
+            <div className="absolute inset-x-0 bottom-2 z-30 flex justify-center pointer-events-none animate-fade-in-out">
+              <span className="bg-black/85 backdrop-blur px-2 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold text-white uppercase tracking-wider border border-white/10 shadow-lg">
+                {videoFilter}
+              </span>
+            </div>
+          )}
+
+          {(!localStream || isVideoOff) ? (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 text-white/50 space-y-1">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-slate-700 flex items-center justify-center text-xs sm:text-sm font-bold text-white overflow-hidden">
+                {user?.displayName?.charAt(0).toUpperCase() || user?.username?.charAt(0).toUpperCase() || 'Me'}
+              </div>
+              <span className="text-[8px] sm:text-[10px] font-semibold">Camera Off</span>
+            </div>
+          ) : (
+            <video
+              ref={localVideoRef}
+              autoPlay
+              muted
+              playsInline
+              id="localVideo"
+              className="w-full h-full object-cover mirror pointer-events-none"
+              style={{ filter: getCssFilter(videoFilter) }}
+            />
+          )}
         </div>
       )}
     </div>

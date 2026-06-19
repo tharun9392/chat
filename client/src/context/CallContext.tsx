@@ -47,6 +47,9 @@ interface CallContextType {
   changeAudioOutput: (deviceId: string) => Promise<void>;
   isSpeakerOff: boolean;
   toggleSpeaker: () => void;
+  videoFilter: string;
+  remoteVideoFilter: string;
+  setLocalVideoFilter: (filter: string) => void;
 }
 
 interface IncomingCallData {
@@ -123,12 +126,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>('');
   const [isSpeakerOff, setIsSpeakerOff] = useState(false);
+  const [videoFilter, setVideoFilter] = useState<string>('none');
+  const [remoteVideoFilter, setRemoteVideoFilter] = useState<string>('none');
 
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const bufferedIceCandidates = useRef<RTCIceCandidate[]>([]);
   const isUsingDummyVideoRef = useRef(false);
+  const isCallerRef = useRef(false);
 
   const cleanup = useCallback(() => {
     // Finalize call record on the backend
@@ -197,7 +203,23 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setActiveReaction(null);
     setIsSpeakerOff(false);
     isUsingDummyVideoRef.current = false;
+    isCallerRef.current = false;
+    setVideoFilter('none');
+    setRemoteVideoFilter('none');
   }, [callId, callDuration, callActive, isCalling, incomingCall, targetId, callType, token]);
+
+  const handleIceRestart = useCallback(async () => {
+    if (!peerConnection.current || !targetId || !isCallerRef.current) return;
+    try {
+      console.log('WebRTC: Initiating ICE restart...');
+      setCallStatus('reconnecting');
+      const offer = await peerConnection.current.createOffer({ iceRestart: true });
+      await peerConnection.current.setLocalDescription(offer);
+      socket?.emit('call_signal', { to: targetId, signal: offer });
+    } catch (e) {
+      console.error('WebRTC: ICE restart failed:', e);
+    }
+  }, [socket, targetId]);
 
   const setupPeerConnection = useCallback((toId: string) => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -225,14 +247,38 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     pc.oniceconnectionstatechange = () => {
       console.log(`WebRTC: ICE connection state: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        handleIceRestart();
+      }
+    };
+
+    pc.onnegotiationneeded = async () => {
+      if (!isCallerRef.current) return;
+      try {
+        console.log('WebRTC: Negotiation needed, creating offer...');
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket?.emit('call_signal', { to: toId, signal: offer });
+      } catch (err) {
+        console.error('WebRTC: Negotiation error:', err);
+      }
     };
 
     pc.ontrack = (event) => {
-      console.log('WebRTC: ontrack event', event);
+      console.log('WebRTC: ontrack event, track kind:', event.track.kind);
       if (event.streams && event.streams[0]) {
-        console.log('WebRTC: remoteStream tracks:', event.streams[0].getVideoTracks());
+        console.log('WebRTC: remoteStream tracks:', event.streams[0].getTracks().map(t => `${t.kind}:${t.label}`));
         // Create a new MediaStream instance to force React state update on new track arrival
         setRemoteStream(new MediaStream(event.streams[0].getTracks()));
+      } else {
+        console.log('WebRTC: Fallback creating remoteStream from tracks');
+        setRemoteStream(prev => {
+          const stream = prev || new MediaStream();
+          if (!stream.getTracks().some(t => t.id === event.track.id)) {
+            stream.addTrack(event.track);
+          }
+          return new MediaStream(stream.getTracks());
+        });
       }
     };
 
@@ -245,10 +291,18 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     peerConnection.current = pc;
     return pc;
-  }, [socket]);
+  }, [socket, handleIceRestart]);
 
   const initiateCall = async (toUserId: string, type: 'audio' | 'video', otherUser: any) => {
     try {
+      isCallerRef.current = true;
+      
+      // Unlock remote audio context on gesture if possible
+      const remoteAudio = document.getElementById('remoteAudio') as HTMLAudioElement;
+      if (remoteAudio) {
+        remoteAudio.play().catch(() => {});
+      }
+
       setCallStatus('calling');
       setCallType(type);
       setTargetId(toUserId);
@@ -334,6 +388,14 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!incomingCall || !socket) return;
     
     try {
+      isCallerRef.current = false;
+
+      // Unlock remote audio context on gesture if possible
+      const remoteAudio = document.getElementById('remoteAudio') as HTMLAudioElement;
+      if (remoteAudio) {
+        remoteAudio.play().catch(() => {});
+      }
+
       setCallStatus('connecting');
       setCallType(incomingCall.type);
       setTargetId(incomingCall.from);
@@ -401,7 +463,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         state: {
           isMuted: isAudioMuted,
           isVideoOff: cameraFailed, // Use direct local variable to avoid batching race condition
-          isScreenSharing: isScreenSharing
+          isScreenSharing: isScreenSharing,
+          videoFilter: videoFilter
         }
       });
 
@@ -465,7 +528,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             state: {
               isMuted: !audioTrack.enabled,
               isVideoOff: isVideoOff,
-              isScreenSharing: isScreenSharing
+              isScreenSharing: isScreenSharing,
+              videoFilter: videoFilter
             }
           });
         }
@@ -517,7 +581,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             state: {
               isMuted: isAudioMuted,
               isVideoOff: false,
-              isScreenSharing: isScreenSharing
+              isScreenSharing: isScreenSharing,
+              videoFilter: videoFilter
             }
           });
         }
@@ -561,7 +626,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           state: {
             isMuted: isAudioMuted,
             isVideoOff: true,
-            isScreenSharing: isScreenSharing
+            isScreenSharing: isScreenSharing,
+            videoFilter: videoFilter
           }
         });
       }
@@ -638,7 +704,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         state: {
           isMuted: isAudioMuted,
           isVideoOff: isVideoOff,
-          isScreenSharing: true
+          isScreenSharing: true,
+          videoFilter: videoFilter
         }
       });
       addNotification('Screen sharing started.', 'info');
@@ -696,7 +763,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       state: {
         isMuted: isAudioMuted,
         isVideoOff: isVideoOff,
-        isScreenSharing: false
+        isScreenSharing: false,
+        videoFilter: videoFilter
       }
     });
     addNotification('Screen sharing stopped.', 'info');
@@ -732,15 +800,28 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const toggleSpeaker = () => {
     setIsSpeakerOff(prev => {
       const nextVal = !prev;
-      const audioElements = document.querySelectorAll('video, audio');
-      for (let el of Array.from(audioElements)) {
-        if (el.id !== 'localVideo' && (el as HTMLMediaElement).srcObject !== localStream) {
-          (el as HTMLMediaElement).muted = nextVal;
-        }
+      const remoteAudio = document.getElementById('remoteAudio') as HTMLAudioElement;
+      if (remoteAudio) {
+        remoteAudio.muted = nextVal;
       }
       return nextVal;
     });
   };
+
+  const setLocalVideoFilter = useCallback((newFilter: string) => {
+    setVideoFilter(newFilter);
+    if (targetId && socket) {
+      socket.emit('call_state_change', {
+        to: targetId,
+        state: {
+          isMuted: isAudioMuted,
+          isVideoOff: isVideoOff,
+          isScreenSharing: isScreenSharing,
+          videoFilter: newFilter
+        }
+      });
+    }
+  }, [targetId, socket, isAudioMuted, isVideoOff, isScreenSharing]);
 
   // Monitor network round-trip time (RTT)
   useEffect(() => {
@@ -814,6 +895,27 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('WebRTC: Buffering ICE candidate');
           bufferedIceCandidates.current.push(candidate);
         }
+      } else if (data.signal.type === 'offer') {
+        console.log('WebRTC: Received renegotiation offer from remote peer');
+        if (peerConnection.current) {
+          try {
+            await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.signal));
+            const answer = await peerConnection.current.createAnswer();
+            await peerConnection.current.setLocalDescription(answer);
+            socket.emit('call_signal', { to: data.from, signal: answer });
+          } catch (e) {
+            console.error('WebRTC: Error handling renegotiation offer:', e);
+          }
+        }
+      } else if (data.signal.type === 'answer') {
+        console.log('WebRTC: Received renegotiation answer from remote peer');
+        if (peerConnection.current) {
+          try {
+            await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.signal));
+          } catch (e) {
+            console.error('WebRTC: Error setting renegotiation answer:', e);
+          }
+        }
       }
     });
 
@@ -838,7 +940,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             state: {
               isMuted: isAudioMuted,
               isVideoOff: isVideoOff,
-              isScreenSharing: isScreenSharing
+              isScreenSharing: isScreenSharing,
+              videoFilter: videoFilter
             }
           });
           
@@ -858,6 +961,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     socket.on('incoming_call', async (data: IncomingCallData) => {
       console.log('WebRTC: Incoming call from:', data.fromName);
+      isCallerRef.current = false;
       setIncomingCall(data);
       if (data.callId) setCallId(data.callId);
       setCallStatus('ringing');
@@ -880,6 +984,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsRemoteMuted(!!data.state.isMuted);
         setIsRemoteVideoOff(!!data.state.isVideoOff);
         setIsRemoteScreenSharing(!!data.state.isScreenSharing);
+        if (data.state.videoFilter !== undefined) {
+          setRemoteVideoFilter(data.state.videoFilter);
+        }
       }
     });
 
@@ -908,7 +1015,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       socket.off('call_reaction');
       socket.off('call_error');
     };
-  }, [socket, cleanup, targetId, isAudioMuted, isVideoOff, isScreenSharing]);
+  }, [socket, cleanup, targetId, isAudioMuted, isVideoOff, isScreenSharing, videoFilter]);
 
   return (
     <CallContext.Provider value={{
@@ -949,7 +1056,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       selectedAudioDevice,
       changeAudioOutput,
       isSpeakerOff,
-      toggleSpeaker
+      toggleSpeaker,
+      videoFilter,
+      remoteVideoFilter,
+      setLocalVideoFilter
     }}>
       {children}
     </CallContext.Provider>

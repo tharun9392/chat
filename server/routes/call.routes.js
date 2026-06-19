@@ -74,7 +74,7 @@ router.delete('/:id', auth, async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
     
-    await Call.delete(callId);
+    await Call.findByIdAndDelete(callId);
     res.status(200).json({ message: 'Call history deleted for both participants' });
   } catch (error) {
     console.error('Error deleting call log:', error);
