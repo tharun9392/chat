@@ -339,17 +339,15 @@ const Chat: React.FC = () => {
     };
   }, []);
 
-  // Focus input on load, chat switch, or after sending
+  // Focus input on initial load or chat switch
   useEffect(() => {
-    if (!isLoading && chat?.status === 'active' && !isSending) {
-      // Small timeout to ensure the DOM is ready after loading spinner disappears
-      // or after a message finishes sending (isSending transitions to false)
+    if (!isLoading && chat?.status === 'active') {
       const timer = setTimeout(() => {
         messageInputRef.current?.focus();
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [chatId, isLoading, chat?.status, isSending]);
+  }, [chatId, isLoading, chat?.status]);
 
   // Load chat data
   useEffect(() => {
@@ -1218,7 +1216,6 @@ const Chat: React.FC = () => {
               onChange={(e) => setMessage(e.target.value)}
               placeholder={(pendingFile && !filePreview) ? `Selected: ${pendingFile.name}` : "Type a message..."}
               className="input-field py-2.5"
-              disabled={isSending}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
