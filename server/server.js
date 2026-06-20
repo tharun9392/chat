@@ -85,6 +85,9 @@ async function connectToDatabase() {
       return;
     } catch (err) {
       console.warn('⚠️  MongoDB Atlas connection failed:', err.message);
+      if (process.env.NODE_ENV === 'production') {
+        console.error('🔴 CRITICAL: MongoDB Atlas connection failed in production! Please check MONGODB_URI in the Render dashboard and verify Atlas IP Whitelisting (Allow access from 0.0.0.0/0).');
+      }
     }
   }
 
@@ -93,6 +96,9 @@ async function connectToDatabase() {
     console.log('Attempting to connect to local MongoDB (mongodb://127.0.0.1:27017/chat_app)...');
     await mongoose.connect('mongodb://127.0.0.1:27017/chat_app', { serverSelectionTimeoutMS: 5000 });
     console.log('✅ Connected to local persistent MongoDB instance');
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('⚠️  WARNING: Using local persistent MongoDB instead of Atlas in production!');
+    }
     return;
   } catch (localErr) {
     console.warn('⚠️  Local MongoDB connection failed:', localErr.message);
@@ -122,6 +128,9 @@ async function connectToDatabase() {
     await mongoose.connect(memoryUri);
     usingInMemoryDb = true;
     console.log('✅ Connected to local persistent MongoDB (data WILL persist across restarts inside server/data/db)');
+    if (process.env.NODE_ENV === 'production') {
+      console.error('🔴 CRITICAL ERROR: Running on ephemeral in-memory database in production! DATA WILL DISAPPEAR ON EVERY RESTART/REDEPLOY!');
+    }
   } catch (memErr) {
     console.error('❌ Failed to start persistent MongoDB fallback:', memErr.message);
     process.exit(1);

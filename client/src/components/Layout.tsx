@@ -56,7 +56,7 @@ const Layout: React.FC = () => {
   }
 
   // Responsive main container classes: hidden on mobile home, full-screen on mobile chat, flex-1 on desktop
-  let mainContainerClassName = "flex flex-col overflow-hidden relative border-l border-white/20 dark:border-white/5 bg-slate-50/50 dark:bg-dark-900/60 ";
+  let mainContainerClassName = "flex-col overflow-hidden relative border-l border-white/20 dark:border-white/5 bg-slate-50/50 dark:bg-dark-900/60 ";
   if (isHomeRoute) {
     mainContainerClassName += "hidden md:flex md:flex-1";
   } else if (isChatRoute) {

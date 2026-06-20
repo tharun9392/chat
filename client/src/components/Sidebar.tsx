@@ -166,7 +166,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className = "" }) => {
   };
 
   return (
-    <aside className={`flex flex-col h-full bg-white/60 dark:bg-dark-900/60 backdrop-blur-md border-r border-slate-200/50 dark:border-white/5 transition-colors duration-300 ${className}`}>
+    <aside className={`flex-col h-full bg-white/60 dark:bg-dark-900/60 backdrop-blur-md border-r border-slate-200/50 dark:border-white/5 transition-colors duration-300 ${className}`}>
       {/* Sidebar Header */}
       <div className="relative z-[100] p-4 bg-white/40 dark:bg-dark-800/40 backdrop-blur-sm flex items-center justify-between border-b border-slate-200/50 dark:border-white/5 shadow-sm">
         <div className="flex items-center space-x-3">
