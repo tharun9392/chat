@@ -541,6 +541,8 @@ const ChatInput = React.memo<ChatInputProps>(({
           <div className="relative" ref={emojiPickerRef}>
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchStart={(e) => e.preventDefault()}
               onClick={() => setIsEmojiPickerOpen(!isEmojiPickerOpen)}
               className={`p-2.5 rounded-full transition-all duration-200 ${isEmojiPickerOpen ? 'bg-primary-500/10 text-primary-600' : 'text-slate-500 hover:text-primary-600 dark:text-slate-400 dark:hover:text-primary-400 hover:bg-slate-200/50 dark:hover:bg-dark-700/50'}`}
               aria-label="Emoji picker"
@@ -558,6 +560,8 @@ const ChatInput = React.memo<ChatInputProps>(({
                     <button
                       key={emoji}
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onTouchStart={(e) => e.preventDefault()}
                       onClick={() => insertEmoji(emoji)}
                       className="text-2xl p-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-dark-700/50 transform hover:scale-125 transition-all duration-200 active:scale-95"
                     >
@@ -572,6 +576,8 @@ const ChatInput = React.memo<ChatInputProps>(({
           <div className="relative">
             <button
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onTouchStart={(e) => e.preventDefault()}
               onClick={() => fileInputRef.current?.click()}
               className="p-2.5 rounded-full text-slate-500 hover:text-primary-600 dark:text-slate-400 dark:hover:text-primary-400 hover:bg-slate-200/50 dark:hover:bg-dark-700/50 transition-colors duration-200"
               aria-label="Attach"
@@ -622,6 +628,8 @@ const ChatInput = React.memo<ChatInputProps>(({
 
           <button
             type="submit"
+            onMouseDown={(e) => e.preventDefault()}
+            onTouchStart={(e) => e.preventDefault()}
             disabled={(!message.trim() && !pendingFile) || chatStatus !== 'active'}
             className={`p-2.5 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm hover:shadow-md transform hover:scale-105 active:scale-95 ${(!message.trim() && !pendingFile) || chatStatus !== 'active'
                 ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500'
