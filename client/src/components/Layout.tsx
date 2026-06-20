@@ -29,22 +29,30 @@ const Layout: React.FC = () => {
   // Dynamic mobile viewport height calculation (safeguards layout against soft keyboard resizing issues)
   useEffect(() => {
     const handleViewportResize = () => {
-      const vh = window.innerHeight * 0.01;
+      const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      const vh = height * 0.01;
       document.documentElement.style.setProperty('--vh', `${vh}px`);
+      
+      // If layout viewport is scrolled/offset due to keyboard open (especially iOS Safari), reset it
+      if (window.visualViewport && window.visualViewport.offsetTop > 0) {
+        window.scrollTo(0, 0);
+      }
     };
 
     handleViewportResize();
     window.addEventListener('resize', handleViewportResize);
     
-    // Also listen to visualViewport if available (iOS Safari and Android Chrome keyboard helper)
+    // Also listen to visualViewport resize and scroll events (iOS Safari and Android Chrome keyboard helper)
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', handleViewportResize);
+      window.visualViewport.addEventListener('scroll', handleViewportResize);
     }
 
     return () => {
       window.removeEventListener('resize', handleViewportResize);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleViewportResize);
+        window.visualViewport.removeEventListener('scroll', handleViewportResize);
       }
     };
   }, []);
@@ -91,7 +99,7 @@ const Layout: React.FC = () => {
 
   return (
     <div 
-      className="flex h-dvh bg-slate-100 dark:bg-dark-900 font-sans text-slate-800 dark:text-slate-200 selection:bg-primary-500 selection:text-white"
+      className="flex bg-slate-100 dark:bg-dark-900 font-sans text-slate-800 dark:text-slate-200 selection:bg-primary-500 selection:text-white w-full overflow-hidden"
       style={{ height: 'calc(var(--vh, 1vh) * 100)' }}
     >
       {/* Dynamic animated abstract background (subtle) */}
@@ -106,7 +114,7 @@ const Layout: React.FC = () => {
         
         {/* Main content area */}
         <div className={mainContainerClassName}>
-          <main className="flex-1 overflow-y-auto w-full">
+          <main className={isChatRoute ? "flex-1 flex flex-col min-h-0 w-full overflow-hidden" : "flex-1 overflow-y-auto w-full"}>
             <Outlet />
           </main>
         </div>

@@ -727,11 +727,10 @@ const Chat: React.FC = () => {
          console.error('Failed to save message to DB:', err);
       });
 
-      setMessage('');
-      setPendingFile(null);
-      setFilePreview(null);
-      
-      // Focus is now handled by the isSending useEffect for stability
+      // Keep focus on the input box to prevent virtual keyboard from closing/flickering
+      setTimeout(() => {
+        messageInputRef.current?.focus();
+      }, 50);
     } catch (error: any) {
       console.error('Error sending message:', error);
       addNotification('Failed to send message', 'error');
@@ -1230,8 +1229,8 @@ const Chat: React.FC = () => {
 
             <button
               type="submit"
-              disabled={(!message.trim() && !pendingFile) || isSending || chat?.status !== 'active'}
-              className={`p-2.5 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm hover:shadow-md transform hover:scale-105 active:scale-95 ${(!message.trim() && !pendingFile) || isSending || chat?.status !== 'active'
+              disabled={(!message.trim() && !pendingFile) || chat?.status !== 'active'}
+              className={`p-2.5 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm hover:shadow-md transform hover:scale-105 active:scale-95 ${(!message.trim() && !pendingFile) || chat?.status !== 'active'
                   ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500'
                   : 'bg-primary-500 hover:bg-primary-600 text-white'
                 }`}
