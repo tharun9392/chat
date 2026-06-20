@@ -106,7 +106,7 @@ const Layout: React.FC = () => {
         
         {/* Main content area */}
         <div className={mainContainerClassName}>
-          <main className="flex-1 overflow-y-auto w-full h-full">
+          <main className="flex-1 overflow-y-auto w-full">
             <Outlet />
           </main>
         </div>
