@@ -26,11 +26,34 @@ const Layout: React.FC = () => {
     };
   }, [socket, addNotification]);
 
+  // Dynamic mobile viewport height calculation (safeguards layout against soft keyboard resizing issues)
+  useEffect(() => {
+    const handleViewportResize = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+
+    handleViewportResize();
+    window.addEventListener('resize', handleViewportResize);
+    
+    // Also listen to visualViewport if available (iOS Safari and Android Chrome keyboard helper)
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportResize);
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleViewportResize);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewportResize);
+      }
+    };
+  }, []);
+
   const isAuthPage = location.pathname === '/login' || location.pathname === '/register' || (!user && !isLoading);
 
   if (isLoading && !user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+      <div className="min-h-dvh bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
       </div>
     );
@@ -67,7 +90,10 @@ const Layout: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-slate-100 dark:bg-dark-900 font-sans text-slate-800 dark:text-slate-200 selection:bg-primary-500 selection:text-white">
+    <div 
+      className="flex h-dvh bg-slate-100 dark:bg-dark-900 font-sans text-slate-800 dark:text-slate-200 selection:bg-primary-500 selection:text-white"
+      style={{ height: 'calc(var(--vh, 1vh) * 100)' }}
+    >
       {/* Dynamic animated abstract background (subtle) */}
       <div className="fixed inset-0 z-0 pointer-events-none opacity-20 dark:opacity-40">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary-500/20 blur-[120px] mix-blend-multiply dark:mix-blend-screen animate-pulse-slow"></div>

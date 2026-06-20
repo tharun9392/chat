@@ -52,6 +52,9 @@ const Chat: React.FC = () => {
   const { socket, isConnected, isAuthenticated } = useSocket();
   const navigate = useNavigate();
 
+  // Create a stable string representation of the private key to prevent unstable object dependency issues
+  const privateKeyHex = encryptionKeys.privateKey ? (sodium as any).to_hex(encryptionKeys.privateKey) : '';
+
   const [chat, setChat] = useState<ChatData | null>(null);
   const [otherUser, setOtherUser] = useState<User | null>(null);
   const [message, setMessage] = useState('');
@@ -92,19 +95,19 @@ const Chat: React.FC = () => {
 
   // Memoized decryption function - uses new encryption utilities
   const decryptMessage = useCallback(async (encryptedText: string, senderPublicKey?: string): Promise<string> => {
-    if (!isEncryptionReady || !encryptionKeys.privateKey || !senderPublicKey) {
+    if (!isEncryptionReady || !privateKeyHex || !senderPublicKey) {
       return '[Encrypted Message - Decryption Key Missing]';
     }
 
     try {
-      return await decryptMessageUtil(encryptedText, senderPublicKey, (sodium as any).to_hex(encryptionKeys.privateKey));
+      return await decryptMessageUtil(encryptedText, senderPublicKey, privateKeyHex);
     } catch (error: any) {
       if (error.message?.includes('incorrect')) {
         return '[Decryption Error: Key mismatch]';
       }
       return '[Decryption Error]';
     }
-  }, [isEncryptionReady, encryptionKeys.privateKey]);
+  }, [isEncryptionReady, privateKeyHex]);
 
   // Improved socket listener management - prevent duplicates
   useEffect(() => {
@@ -316,6 +319,26 @@ const Chat: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chat?.messages]);
 
+  // Scroll to bottom when visual viewport size changes (e.g. keyboard opens/closes)
+  useEffect(() => {
+    const handleViewportResize = () => {
+      // Delay slightly to ensure keyboard animation has started and viewport size adjusted
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 150);
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportResize);
+    }
+    
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewportResize);
+      }
+    };
+  }, []);
+
   // Focus input on load, chat switch, or after sending
   useEffect(() => {
     if (!isLoading && chat?.status === 'active' && !isSending) {
@@ -342,10 +365,16 @@ const Chat: React.FC = () => {
       if (!chatId) return;
 
       try {
-        setIsLoading(true);
-        // Only clear chat data if the ID changed
-        setChat(null);
-        setOtherUser(null);
+        // Only show loading spinner and clear previous chat if loading a DIFFERENT chat room
+        // This prevents screen flickering/blinking when keyboard toggling triggers layout resize
+        setChat(currentChat => {
+          if (!currentChat || currentChat._id !== chatId) {
+            setIsLoading(true);
+            setOtherUser(null);
+            return null;
+          }
+          return currentChat;
+        });
 
         const response = await axios.get(`${API_URL}/chats/${chatId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -476,7 +505,9 @@ const Chat: React.FC = () => {
     return () => {
       source.cancel('Chat changed or unmounted');
     };
-  }, [chatId, token, user, addNotification, navigate, decryptMessage, isEncryptionReady]);
+    // Restrict dependency list to prevent unneeded re-fetches when key references of utility hooks change on resize
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId, token, user, isEncryptionReady]);
 
   // Format date for display
   const formatMessageTime = (dateString: string) => {

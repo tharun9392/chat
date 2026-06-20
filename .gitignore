@@ -24,3 +24,6 @@ server/data/*.db
 .DS_Store
 *.swp
 *.log
+
+.vercel
+.env*
