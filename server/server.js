@@ -70,149 +70,43 @@ app.use(express.static('public'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Connect to MongoDB (with fallback to in-memory server for development)
-let usingInMemoryDb = false;
-
 async function connectToDatabase() {
   const atlasUri = process.env.MONGODB_URI;
   
-  // Try Atlas first
-  if (atlasUri) {
-    try {
-      console.log('Attempting to connect to MongoDB Atlas...');
-      await mongoose.connect(atlasUri, { serverSelectionTimeoutMS: 5000 });
-      console.log('✅ Connected to MongoDB Atlas');
-      return;
-    } catch (err) {
-      console.warn('⚠️  MongoDB Atlas connection failed:', err.message);
-      if (process.env.NODE_ENV === 'production') {
-        console.error('🔴 CRITICAL: MongoDB Atlas connection failed in production! Please check MONGODB_URI in the Render dashboard and verify Atlas IP Whitelisting (Allow access from 0.0.0.0/0).');
-      }
-    }
+  if (!atlasUri) {
+    console.error('🔴 CRITICAL: MONGODB_URI is not defined in the environment variables!');
+    process.exit(1);
   }
 
-  // Try local MongoDB next
-  try {
-    console.log('Attempting to connect to local MongoDB (mongodb://127.0.0.1:27017/chat_app)...');
-    await mongoose.connect('mongodb://127.0.0.1:27017/chat_app', { serverSelectionTimeoutMS: 5000 });
-    console.log('✅ Connected to local persistent MongoDB instance');
-    if (process.env.NODE_ENV === 'production') {
-      console.warn('⚠️  WARNING: Using local persistent MongoDB instead of Atlas in production!');
-    }
-    return;
-  } catch (localErr) {
-    console.warn('⚠️  Local MongoDB connection failed:', localErr.message);
-    console.log('Falling back to in-memory MongoDB for local development...');
-  }
+  // Mongoose connection event listeners for logging and health checks
+  mongoose.connection.on('connecting', () => {
+    console.log('Attempting to connect to MongoDB Atlas...');
+  });
 
-  // Fallback: use mongodb-memory-server with local storage persistence
+  mongoose.connection.on('connected', () => {
+    console.log('✅ Connected to MongoDB Atlas successfully');
+  });
+
+  mongoose.connection.on('error', (err) => {
+    console.error('❌ MongoDB connection error:', err.message);
+  });
+
+  mongoose.connection.on('disconnected', () => {
+    console.warn('⚠️ MongoDB connection lost. Reconnecting...');
+  });
+
   try {
-    const path = require('path');
-    const fs = require('fs');
-    const { MongoMemoryServer } = require('mongodb-memory-server');
-    
-    const dbPath = path.join(__dirname, 'data', 'db');
-    // Ensure the db folder exists
-    if (!fs.existsSync(dbPath)) {
-      fs.mkdirSync(dbPath, { recursive: true });
-    }
-    
-    const mongoServer = await MongoMemoryServer.create({
-      instance: {
-        dbPath: dbPath,
-        storageEngine: 'wiredTiger'
-      }
+    await mongoose.connect(atlasUri, {
+      serverSelectionTimeoutMS: 10000, // 10s timeout
+      heartbeatFrequencyMS: 10000, // check server status every 10s
     });
-    
-    const memoryUri = mongoServer.getUri();
-    await mongoose.connect(memoryUri);
-    usingInMemoryDb = true;
-    console.log('✅ Connected to local persistent MongoDB (data WILL persist across restarts inside server/data/db)');
-    if (process.env.NODE_ENV === 'production') {
-      console.error('🔴 CRITICAL ERROR: Running on ephemeral in-memory database in production! DATA WILL DISAPPEAR ON EVERY RESTART/REDEPLOY!');
-    }
-  } catch (memErr) {
-    console.error('❌ Failed to start persistent MongoDB fallback:', memErr.message);
+  } catch (err) {
+    console.error('🔴 CRITICAL: Failed to establish initial database connection to MongoDB Atlas:', err.message);
     process.exit(1);
   }
 }
 
-// Seed default user for in-memory DB so login works immediately after restarts
-async function seedDefaultUser() {
-  if (!usingInMemoryDb) return;
-  
-  const User = require('./models/user.model');
-  const sodium = require('libsodium-wrappers');
-  
-  try {
-    await sodium.ready;
-    
-    // Seed user 1: tharun
-    const existingUser1 = await User.findOne({ username: 'tharun' });
-    if (!existingUser1) {
-      const keys1 = sodium.crypto_box_keypair('hex');
-      await User.create({
-        username: 'tharun',
-        password: 'Tharun@123',
-        displayName: 'tharun',
-        publicKey: keys1.publicKey,
-        publicKeyVersion: 1,
-        privateKey: keys1.privateKey
-      });
-      console.log('✅ Seeded user: tharun (password: Tharun@123)');
-    }
-
-    // Seed user 2: testuser (for testing chat requests)
-    const existingUser2 = await User.findOne({ username: 'testuser' });
-    if (!existingUser2) {
-      const keys2 = sodium.crypto_box_keypair('hex');
-      await User.create({
-        username: 'testuser',
-        password: 'Test@1234',
-        displayName: 'Test User',
-        publicKey: keys2.publicKey,
-        publicKeyVersion: 1,
-        privateKey: keys2.privateKey
-      });
-      console.log('✅ Seeded user: testuser (password: Test@1234)');
-    }
-
-    // Seed user 3: jayanth
-    const existingUser3 = await User.findOne({ username: 'jayanth' });
-    if (!existingUser3) {
-      const keys3 = sodium.crypto_box_keypair('hex');
-      await User.create({
-        username: 'jayanth',
-        password: 'Jayanth@123',
-        displayName: 'jayanth',
-        publicKey: keys3.publicKey,
-        publicKeyVersion: 1,
-        privateKey: keys3.privateKey
-      });
-      console.log('✅ Seeded user: jayanth (password: Jayanth@123)');
-    }
-
-    // Seed Admin user: btharun356@gmail.com
-    const existingAdmin = await User.findOne({ username: 'btharun356@gmail.com' });
-    if (!existingAdmin) {
-      const adminKeys = sodium.crypto_box_keypair('hex');
-      await User.create({
-        username: 'btharun356@gmail.com',
-        password: 'Tharun@123',
-        displayName: 'Admin (B Tharun)',
-        isAdmin: true,
-        publicKey: adminKeys.publicKey,
-        publicKeyVersion: 1,
-        privateKey: adminKeys.privateKey
-      });
-      console.log('✅ Seeded Admin user: btharun356@gmail.com (password: Tharun@123)');
-    }
-  } catch (err) {
-    console.error('⚠️  Failed to seed default users:', err.message);
-  }
-}
-
-connectToDatabase().then(() => seedDefaultUser());
+connectToDatabase();
 
 // Routes
 app.use('/api/auth', authRoutes);
