@@ -1,0 +1,189 @@
+[
+  {
+    "requestInfo": {
+      "senderId": "69e080c02bf581e4a2bedfc4",
+      "recipientId": "69e080dc2bf581e4a2bedfc8"
+    },
+    "isAccepted": false,
+    "_id": "69e0814ec2b77a003901ae40",
+    "participants": [
+      {
+        "_id": "69e080c02bf581e4a2bedfc4",
+        "username": "tharun"
+      },
+      {
+        "_id": "69e080dc2bf581e4a2bedfc8",
+        "username": "jayanth"
+      }
+    ],
+    "messages": [
+      {
+        "_id": "154a7bb4-7a48-4d62-90a7-e4efc1b8407b",
+        "sender": "69e080dc2bf581e4a2bedfc8",
+        "content": "BcVqG2Vq3AB21v5UYVssiLGUztkXCqMASMf2L7ypda9oEbx4++6+vJIxWg==",
+        "type": "text",
+        "timestamp": "2026-04-16T06:28:05.084Z",
+        "status": "read",
+        "recipientRead": true,
+        "delivered": false,
+        "encrypted": true,
+        "isCallLog": false,
+        "isVoiceMessage": false,
+        "autoDeleteAt": null,
+        "deleteAfterView": false,
+        "readAt": "2026-04-16T09:01:11.808Z",
+        "createdAt": "2026-04-16T06:28:05.067Z"
+      },
+      {
+        "_id": "808e779d-3a68-46fc-91bc-9ab3e35af7c8",
+        "sender": "69e080dc2bf581e4a2bedfc8",
+        "content": "+Ngv04IxH9nE1BPJvZNVT8Yrfk+0PNNXPx5qdNDA0au9l7+6xdnnDUjvHw==",
+        "type": "text",
+        "timestamp": "2026-04-16T06:28:12.448Z",
+        "status": "read",
+        "recipientRead": true,
+        "delivered": false,
+        "encrypted": true,
+        "isCallLog": false,
+        "isVoiceMessage": false,
+        "autoDeleteAt": null,
+        "deleteAfterView": false,
+        "readAt": "2026-04-16T09:01:11.808Z",
+        "createdAt": "2026-04-16T06:28:12.446Z"
+      },
+      {
+        "_id": "055a9f0e-5f4c-467a-83fd-e77763c3da2d",
+        "sender": "69e080dc2bf581e4a2bedfc8",
+        "content": "eTEwruHHuCf4HLtWWSUV1lJBnslBPxOMlvGHsRi9T6CCVPJGICrUfpa5fRc=",
+        "type": "text",
+        "timestamp": "2026-04-16T07:25:34.987Z",
+        "status": "read",
+        "senderName": "jayanth",
+        "recipientRead": true,
+        "delivered": false,
+        "encrypted": true,
+        "isCallLog": false,
+        "isVoiceMessage": false,
+        "deleteAfterView": false,
+        "readAt": "2026-04-16T09:01:11.808Z",
+        "createdAt": "2026-04-16T07:25:34.987Z"
+      }
+    ],
+    "type": "private",
+    "status": "active",
+    "lastActivity": "2026-04-16T07:25:34.987Z",
+    "createdAt": "2026-04-16T06:27:26.622Z",
+    "updatedAt": "2026-04-16T09:01:11.808Z",
+    "__v": 0,
+    "id": "69e0814ec2b77a003901ae40"
+  },
+  {
+    "requestInfo": {
+      "senderId": "69e0819561a8e8283d4d28f4",
+      "recipientId": "69e080dc2bf581e4a2bedfc8"
+    },
+    "_id": "69e0819c61a8e8283d4d290d",
+    "participants": [
+      {
+        "_id": "69e0819561a8e8283d4d28f4",
+        "username": "shiva"
+      },
+      {
+        "_id": "69e080dc2bf581e4a2bedfc8",
+        "username": "jayanth"
+      }
+    ],
+    "messages": [
+      {
+        "_id": "4d3eeb0e-e948-4cce-88fb-dcf6ef9d38cd",
+        "sender": "69e080dc2bf581e4a2bedfc8",
+        "content": "5PKNdRqlvJfUgJnUxwBe0Rmh+HLbw1wIZs5Px4UExYKCANJ6q87TS4sFMQ==",
+        "type": "text",
+        "timestamp": "2026-04-16T09:00:42.326Z",
+        "status": "read",
+        "senderName": "jayanth",
+        "recipientRead": true,
+        "delivered": false,
+        "encrypted": true,
+        "isCallLog": false,
+        "isVoiceMessage": false,
+        "deleteAfterView": false,
+        "readAt": "2026-04-16T09:01:05.222Z",
+        "deliveredAt": "2026-04-16T09:10:03.823Z",
+        "createdAt": "2026-04-16T09:00:42.326Z"
+      },
+      {
+        "_id": "5a30fceb-8af8-4345-a90c-ef78e2e22b3c",
+        "sender": "69e0819561a8e8283d4d28f4",
+        "content": "qzzXiX2ho18vm4Zhm7saN6+3Sd46kog8PIr0vcLK8fAeBnNw6JK6RIjM",
+        "type": "text",
+        "timestamp": "2026-04-16T09:01:11.442Z",
+        "status": "sent",
+        "senderName": "shiva",
+        "recipientRead": false,
+        "delivered": false,
+        "encrypted": true,
+        "isCallLog": false,
+        "isVoiceMessage": false,
+        "deleteAfterView": false,
+        "createdAt": "2026-04-16T09:01:11.442Z"
+      },
+      {
+        "_id": "8a415e76-06ea-40f0-88fe-9012ff9c329b",
+        "sender": "69e0819561a8e8283d4d28f4",
+        "content": "dlYwUlRBDZ2jHinmrBvkCVb82t1CjWA3hwCuDkRi3bkm/1tZ5EeimX+jwQ==",
+        "type": "text",
+        "timestamp": "2026-04-16T09:01:45.337Z",
+        "status": "sent",
+        "senderName": "shiva",
+        "recipientRead": false,
+        "delivered": false,
+        "encrypted": true,
+        "isCallLog": false,
+        "isVoiceMessage": false,
+        "deleteAfterView": false,
+        "createdAt": "2026-04-16T09:01:45.337Z"
+      },
+      {
+        "_id": "6d3c7738-3e39-4b5e-a21f-ec5f5b80e871",
+        "sender": "69e0819561a8e8283d4d28f4",
+        "content": "W1upCWLdpLOqy7ZVQHbo7yXQdsqqHIQKbNtJC5C4vNz5azjglVdeQdVHVA==",
+        "type": "text",
+        "timestamp": "2026-04-16T09:01:58.065Z",
+        "status": "sent",
+        "senderName": "shiva",
+        "recipientRead": false,
+        "delivered": false,
+        "encrypted": true,
+        "isCallLog": false,
+        "isVoiceMessage": false,
+        "deleteAfterView": false,
+        "createdAt": "2026-04-16T09:01:58.065Z"
+      },
+      {
+        "_id": "e0634e21-2b7e-4fbe-a256-f9b795a69603",
+        "sender": "69e0819561a8e8283d4d28f4",
+        "content": "/GjQX2qCpDCxYRbNMUbLncHrJ8jUN7Uq5PjJBNAQX9p3DRjqaQo9wwlL3Q==",
+        "type": "text",
+        "timestamp": "2026-04-16T09:10:18.563Z",
+        "status": "sent",
+        "senderName": "shiva",
+        "recipientRead": false,
+        "delivered": false,
+        "encrypted": true,
+        "isCallLog": false,
+        "isVoiceMessage": false,
+        "deleteAfterView": false,
+        "createdAt": "2026-04-16T09:10:18.563Z"
+      }
+    ],
+    "type": "private",
+    "status": "active",
+    "lastActivity": "2026-04-16T09:10:18.563Z",
+    "createdAt": "2026-04-16T06:28:44.638Z",
+    "updatedAt": "2026-04-16T09:10:18.564Z",
+    "__v": 0,
+    "isAccepted": true,
+    "id": "69e0819c61a8e8283d4d290d"
+  }
+]

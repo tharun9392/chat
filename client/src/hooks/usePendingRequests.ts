@@ -49,15 +49,6 @@ export function usePendingRequests(userId: string | undefined) {
     }
 
     fetchRequestsData();
-
-    // Poll for new requests every 10 seconds as a fallback
-    const interval = setInterval(() => {
-      fetchRequestsData();
-    }, 10000);
-
-    return () => {
-      clearInterval(interval);
-    };
   }, [userId, fetchRequestsData]);
 
   // Listen for real-time socket events

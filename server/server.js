@@ -70,6 +70,79 @@ app.use(express.static('public'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+async function seedDefaultData() {
+  try {
+    const User = require('./models/user.model');
+    const Chat = require('./models/chat.model');
+    const { v4: uuidv4 } = require('uuid');
+    
+    // Check if we already have users
+    const existingAdmin = await User.findOne({ username: 'btharun356@gmail.com' });
+    if (existingAdmin) {
+      console.log('🌱 Database already seeded.');
+      return;
+    }
+
+    console.log('🌱 Seeding database...');
+    
+    // Create admin user
+    const admin = await User.create({
+      username: 'btharun356@gmail.com',
+      password: 'Tharun@123',
+      displayName: 'Admin (B Tharun)',
+      isAdmin: true
+    });
+    console.log('✅ Created Admin user: btharun356@gmail.com');
+    
+    // Create other demo users
+    const alice = await User.create({
+      username: 'alice@example.com',
+      password: 'Password123',
+      displayName: 'Alice',
+      isAdmin: false
+    });
+    console.log('✅ Created user: alice@example.com');
+    
+    const bob = await User.create({
+      username: 'bob@example.com',
+      password: 'Password123',
+      displayName: 'Bob',
+      isAdmin: false
+    });
+    console.log('✅ Created user: bob@example.com');
+
+    // Create a demo chat room between Alice and Bob
+    const demoChat = await Chat.create({
+      participants: [String(alice._id), String(bob._id)],
+      status: 'active',
+      isAccepted: true,
+      messages: [
+        {
+          _id: uuidv4(),
+          sender: String(alice._id),
+          content: 'Hi Bob! Welcome to the secure chat.',
+          type: 'text',
+          timestamp: new Date(Date.now() - 3600000 * 2)
+        },
+        {
+          _id: uuidv4(),
+          sender: String(bob._id),
+          content: 'Hey Alice! Thanks, this works great.',
+          type: 'text',
+          timestamp: new Date(Date.now() - 3600000)
+        }
+      ]
+    });
+    console.log('✅ Created demo chat room between Alice and Bob');
+    
+    console.log('🌱 Seeding finished successfully!');
+  } catch (err) {
+    if (err.code !== 11000) { // Ignore duplicate key errors just in case
+      console.error('❌ Failed to seed default data:', err.message);
+    }
+  }
+}
+
 async function connectToDatabase() {
   const atlasUri = process.env.MONGODB_URI;
   
@@ -80,11 +153,11 @@ async function connectToDatabase() {
 
   // Mongoose connection event listeners for logging and health checks
   mongoose.connection.on('connecting', () => {
-    console.log('Attempting to connect to MongoDB Atlas...');
+    console.log('Attempting to connect to MongoDB...');
   });
 
   mongoose.connection.on('connected', () => {
-    console.log('✅ Connected to MongoDB Atlas successfully');
+    console.log('✅ Connected to MongoDB successfully');
   });
 
   mongoose.connection.on('error', (err) => {
@@ -97,12 +170,15 @@ async function connectToDatabase() {
 
   try {
     await mongoose.connect(atlasUri, {
-      serverSelectionTimeoutMS: 10000, // 10s timeout
-      heartbeatFrequencyMS: 10000, // check server status every 10s
+      serverSelectionTimeoutMS: 30000, // 30s timeout
+      heartbeatFrequencyMS: 10000,
     });
+    
+    // Seed default admin and test users if they don't exist
+    await seedDefaultData();
   } catch (err) {
-    console.error('🔴 CRITICAL: Failed to establish initial database connection to MongoDB Atlas:', err.message);
-    process.exit(1);
+    console.error('🔴 CRITICAL: Failed to connect to MongoDB:', err.message);
+    process.exit(1); // Exit rather than using a fake database
   }
 }
 

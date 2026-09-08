@@ -204,13 +204,11 @@ router.put('/request/:requestId', async (req, res) => {
       return res.status(404).json({ message: 'Request not found' });
     }
 
-    // Authorization: user must be a participant but NOT the sender
-    const participantIds = chat.participants.map(p => p.toString());
-    const senderId = chat.requestInfo.senderId ? chat.requestInfo.senderId.toString() : null;
-    const isParticipant = participantIds.includes(userId);
-    const isNotSender = userId !== senderId;
-
-    if (!isParticipant || !isNotSender) {
+    // Authorization: User must be the explicit recipient of this request
+    const recipientId = chat.requestInfo.recipientId ? chat.requestInfo.recipientId.toString() : null;
+    
+    if (userId !== recipientId) {
+      console.log(`403 Denied: User ${userId} tried to accept a request meant for ${recipientId}`);
       return res.status(403).json({ message: 'Only the recipient can respond to this request' });
     }
 

@@ -811,6 +811,40 @@ const Chat: React.FC = () => {
 
       // Attach listeners exactly once
       socket.on('receive_message', handleReceiveMessage);
+      socket.on('messages_read', (data: { chatId: string, readerId: string }) => {
+        if (data.chatId === chatId) {
+          setChat(prevChat => {
+            if (!prevChat) return null;
+            const now = new Date().toISOString();
+            return {
+              ...prevChat,
+              messages: prevChat.messages.map(msg => {
+                if (String(msg.sender) === String(user?.id || user?._id) && !msg.readAt) {
+                  return { ...msg, readAt: now };
+                }
+                return msg;
+              })
+            };
+          });
+        }
+      });
+      socket.on('messages_delivered', (data: { chatId: string, receiverId: string }) => {
+        if (data.chatId === chatId) {
+          setChat(prevChat => {
+            if (!prevChat) return null;
+            const now = new Date().toISOString();
+            return {
+              ...prevChat,
+              messages: prevChat.messages.map(msg => {
+                if (String(msg.sender) === String(user?.id || user?._id) && !msg.deliveredAt && !msg.readAt) {
+                  return { ...msg, deliveredAt: now };
+                }
+                return msg;
+              })
+            };
+          });
+        }
+      });
       socketListenersAttachedRef.current = true;
     }
 
@@ -819,6 +853,9 @@ const Chat: React.FC = () => {
       if (socket && currentRoomRef.current.roomId === chatId) {
         socket.emit('leave_room', chatId);
         socket.off('message_deleted');
+        socket.off('receive_message');
+        socket.off('messages_read');
+        socket.off('messages_delivered');
         socketListenersAttachedRef.current = false;
         currentRoomRef.current = { roomId: null, status: null };
       }

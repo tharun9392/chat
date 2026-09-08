@@ -29,7 +29,7 @@ export interface Chat {
 }
 
 export const useChats = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { socket, isConnected, isAuthenticated } = useSocket();
   const [chats, setChats] = useState<Chat[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -89,7 +89,49 @@ export const useChats = () => {
 
   // Listen for real-time events that should refresh the chat list
   useEffect(() => {
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
     if (!socket || !isConnected || !isAuthenticated) return;
+
+    const handleReceiveMessage = (data: any) => {
+      fetchChats();
+      
+      const currentUserId = user?.id || user?._id;
+      if (currentUserId && data.sender !== currentUserId) {
+        // Prevent notification if the user is currently viewing this chat room
+        const isViewingChat = window.location.pathname.includes(`/chat/${data.room}`);
+        
+        if (!isViewingChat && 'Notification' in window && Notification.permission === 'granted') {
+          let senderName = 'Someone';
+          const chatInfo = chats.find(c => c._id === data.room);
+          if (chatInfo) {
+            const senderInfo = chatInfo.participants.find(p => p._id === data.sender);
+            if (senderInfo) {
+              senderName = senderInfo.displayName || senderInfo.username;
+            }
+          }
+          
+          try {
+            const notification = new Notification(`New message from ${senderName}`, {
+              body: data.encrypted ? 'You received a new encrypted message' : (data.content || 'New message'),
+              tag: `chat-${data.room}`, // Group notifications per chat
+              icon: '/favicon.ico'
+            });
+            
+            notification.onclick = () => {
+              window.focus();
+              window.location.href = `/chat/${data.room}`;
+            };
+          } catch (e) {
+            console.error('Failed to show notification', e);
+          }
+        }
+      }
+    };
 
     const handleRefresh = () => {
       fetchChats();
@@ -106,16 +148,16 @@ export const useChats = () => {
       }
     };
 
-    socket.on('receive_message', handleRefresh);
+    socket.on('receive_message', handleReceiveMessage);
     socket.on('chat_request_accepted', handleChatAccepted);
     socket.on('message_deleted', handleRefresh);
 
     return () => {
-      socket.off('receive_message', handleRefresh);
+      socket.off('receive_message', handleReceiveMessage);
       socket.off('chat_request_accepted', handleChatAccepted);
       socket.off('message_deleted', handleRefresh);
     };
-  }, [socket, isConnected, isAuthenticated, fetchChats, appendChat]);
+  }, [socket, isConnected, isAuthenticated, fetchChats, appendChat, chats, user]);
 
   return { chats, isLoading, fetchChats, appendChat };
 };

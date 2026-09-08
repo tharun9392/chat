@@ -34,7 +34,10 @@ const CallOverlay: React.FC = () => {
     toggleSpeaker,
     videoFilter,
     remoteVideoFilter,
-    setLocalVideoFilter
+    setLocalVideoFilter,
+    isScreenSharing,
+    startScreenShare,
+    stopScreenShare
   } = useCall();
 
   const [showControls, setShowControls] = useState(true);
@@ -572,7 +575,7 @@ const CallOverlay: React.FC = () => {
                     playsInline
                     muted={true}
                     id="remoteVideo"
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-cover"
                     style={{ filter: getCssFilter(remoteVideoFilter) }}
                   />
                 )
@@ -680,6 +683,21 @@ const CallOverlay: React.FC = () => {
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  </svg>
+                </button>
+
+                {/* Screen Share Toggle */}
+                <button
+                  onClick={isScreenSharing ? stopScreenShare : startScreenShare}
+                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isScreenSharing ? 'bg-indigo-500 text-white shadow-lg' : 'bg-slate-800 hover:bg-slate-700 text-white border border-white/5'}`}
+                  title={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {isScreenSharing ? (
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    ) : (
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    )}
                   </svg>
                 </button>
 

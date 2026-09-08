@@ -207,4 +207,22 @@ router.get('/all', authMiddleware, adminMiddleware, async (req, res) => {
   }
 });
 
+// Delete own user account
+router.delete('/account', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Find and delete the user
+    const deletedUser = await User.findByIdAndDelete(userId);
+    
+    if (!deletedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 module.exports = router; 

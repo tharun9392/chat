@@ -1,0 +1,26 @@
+[
+  {
+    "id": "69e0814ec2b77a003901ae40",
+    "status": "active",
+    "participants": [
+      "69e080c02bf581e4a2bedfc4",
+      "69e080dc2bf581e4a2bedfc8"
+    ]
+  },
+  {
+    "id": "69e0819c61a8e8283d4d290d",
+    "status": "active",
+    "participants": [
+      "69e0819561a8e8283d4d28f4",
+      "69e080dc2bf581e4a2bedfc8"
+    ]
+  },
+  {
+    "id": "69e0a78b7c80214a4af1f6ad",
+    "status": "pending",
+    "participants": [
+      "69e0819561a8e8283d4d28f4",
+      "69e080c02bf581e4a2bedfc4"
+    ]
+  }
+]
