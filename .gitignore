@@ -15,11 +15,6 @@ dist/
 .env.test.local
 .env.production.local
 
-# Databases (NeDB and MongoDB)
-server/data/*.db
-server/data/db/
-server/db_chats*.txt
-server/db_chats*.json
 
 # IDEs and Misc
 .vscode/
